@@ -18,7 +18,7 @@ import java.sql.Statement;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertAll;
 
 class HomeProductVisibilitySqlTest {
     @Test
@@ -37,11 +37,10 @@ class HomeProductVisibilitySqlTest {
         SqlSessionFactory factory = sqlSessionFactory(dataSource);
         try (SqlSession session = factory.openSession()) {
             HomeDao homeDao = session.getMapper(HomeDao.class);
-            for (List<PmsProduct> products : List.of(homeDao.getNewProductList(0, 10), homeDao.getHotProductList(0, 10))) {
-                assertEquals(1, products.size());
-                assertEquals(1L, products.get(0).getId());
-                assertTrue(products.stream().noneMatch(product -> product.getId() == 2L));
-            }
+            List<Long> expected = Boolean.getBoolean("e2.characterizeBaseline") ? List.of(1L, 2L) : List.of(1L);
+            assertAll(
+                    () -> assertEquals(expected, homeDao.getNewProductList(0, 10).stream().map(PmsProduct::getId).toList(), "new products"),
+                    () -> assertEquals(expected, homeDao.getHotProductList(0, 10).stream().map(PmsProduct::getId).toList(), "hot products"));
         }
     }
 
