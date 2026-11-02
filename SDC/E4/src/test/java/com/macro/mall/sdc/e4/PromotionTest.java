@@ -5,7 +5,6 @@ import com.macro.mall.portal.dao.PortalProductDao;
 import com.macro.mall.portal.domain.*;
 import com.macro.mall.portal.service.impl.OmsPromotionServiceImpl;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.ArrayList;
@@ -25,9 +24,8 @@ class PromotionTest {
     }
 
     private void check(int type, int quantity, String reduction, String message) {
-        OmsPromotionServiceImpl service = new OmsPromotionServiceImpl();
         PortalProductDao dao = mock(PortalProductDao.class, withSettings().mockMaker("mock-maker-subclass"));
-        ReflectionTestUtils.setField(service, "portalProductDao", dao);
+        OmsPromotionServiceImpl service = new OmsPromotionServiceImpl(dao);
         PmsSkuStock sku = new PmsSkuStock();
         sku.setId(7L);
         sku.setPrice(new BigDecimal("100.00"));
