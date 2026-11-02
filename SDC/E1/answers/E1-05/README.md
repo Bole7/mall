@@ -34,4 +34,4 @@ PmsBrandController.update(id, PmsBrandParam)
 mvn -pl mall-admin -am -DskipTests=false -Dmaven.compiler.proc=full -Dtest=E105BrandUpdateTest -Dsurefire.failIfNoSpecifiedTests=false test
 ```
 
-本轮主代理复跑1项通过，0失败/错误/跳过，原始日志见 review-test.log。测试资源使用subclass MockMaker，仅建议运行本题定向测试；该配置会影响本分支mall-admin测试模块对final/static对象的模拟能力，未核验该模块全部测试。不创建PR、不合入mall主线。
+本轮主代理复跑1项通过，0失败/错误/跳过，原始日志见 review-test.log。本分支 mall-admin 测试资源使用 subclass MockMaker，以避开本机 inline agent 自附加失败；这影响本模块 final/static 对象的模拟能力，只验证本题定向测试，未执行模块全部测试。不创建PR、不合入mall主线。
