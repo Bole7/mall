@@ -1,0 +1,4 @@
+12:import com.macro.mall.service.UmsAdminService;
+27:    private UmsAdminService adminService;
+44:    public void delAdmin(Long adminId) {
+45:        UmsAdmin admin = adminService.getItem(adminId);

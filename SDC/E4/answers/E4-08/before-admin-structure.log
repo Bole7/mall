@@ -1,0 +1,6 @@
+17:import com.macro.mall.security.util.SpringUtil;
+63:        UmsAdmin admin = getCacheService().getAdmin(username);
+72:            getCacheService().setAdmin(admin);
+186:        getCacheService().delAdmin(id);
+193:        getCacheService().delAdmin(id);
+194:        getCacheService().delResourceList(id);
