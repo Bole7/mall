@@ -42,8 +42,7 @@ public class PmsPortalBrandServiceImpl implements PmsPortalBrandService {
     public CommonPage<PmsProduct> productList(Long brandId, Integer pageNum, Integer pageSize) {
         PageHelper.startPage(pageNum,pageSize);
         PmsProductExample example = new PmsProductExample();
-        example.createCriteria().andDeleteStatusEqualTo(0)
-                .andPublishStatusEqualTo(1)
+        ProductVisibilityCriteria.apply(example.createCriteria())
                 .andBrandIdEqualTo(brandId);
         List<PmsProduct> productList = productMapper.selectByExample(example);
         return CommonPage.restPage(productList);

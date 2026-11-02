@@ -60,9 +60,7 @@ public class HomeServiceImpl implements HomeService {
         // TODO: 2019/1/29 暂时默认推荐所有商品
         PageHelper.startPage(pageNum,pageSize);
         PmsProductExample example = new PmsProductExample();
-        example.createCriteria()
-                .andDeleteStatusEqualTo(0)
-                .andPublishStatusEqualTo(1);
+        ProductVisibilityCriteria.apply(example.createCriteria());
         return productMapper.selectByExample(example);
     }
 

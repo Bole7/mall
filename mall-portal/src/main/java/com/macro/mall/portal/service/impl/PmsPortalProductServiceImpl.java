@@ -56,8 +56,7 @@ public class PmsPortalProductServiceImpl implements PmsPortalProductService {
                                     Integer pageSize, Integer sort, ProductQueryCriteria filters) {
         PmsProductExample example = new PmsProductExample();
         PmsProductExample.Criteria criteria = example.createCriteria();
-        criteria.andDeleteStatusEqualTo(0);
-        criteria.andPublishStatusEqualTo(1);
+        ProductVisibilityCriteria.apply(criteria);
         if (StrUtil.isNotEmpty(keyword)) {
             // The structured query promises a literal substring; keep the old API's LIKE semantics.
             String pattern = filters == null ? keyword
