@@ -1,0 +1,97 @@
+diff --git a/SDC/E4/pom.xml b/SDC/E4/pom.xml
+index 865bae29..0f6f7924 100644
+--- a/SDC/E4/pom.xml
++++ b/SDC/E4/pom.xml
+@@ -3,5 +3,8 @@
+   <modelVersion>4.0.0</modelVersion>
+   <parent><groupId>com.macro.mall</groupId><artifactId>sdc</artifactId><version>1.0-SNAPSHOT</version></parent>
+   <artifactId>sdc-e4</artifactId><name>SDC E4</name>
+-  <dependencies><dependency><groupId>com.macro.mall</groupId><artifactId>mall-portal</artifactId><version>${project.version}</version><scope>test</scope></dependency></dependencies>
++  <dependencies>
++    <dependency><groupId>com.macro.mall</groupId><artifactId>mall-portal</artifactId><version>${project.version}</version><scope>test</scope></dependency>
++    <dependency><groupId>com.macro.mall</groupId><artifactId>mall-admin</artifactId><version>${project.version}</version><scope>test</scope></dependency>
++  </dependencies>
+ </project>
+diff --git a/SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java
+new file mode 100644
+index 00000000..870269ff
+--- /dev/null
++++ b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java
+@@ -0,0 +1,51 @@
++package com.macro.mall.sdc.e4;
++
++import com.macro.mall.mapper.CmsPrefrenceAreaMapper;
++import com.macro.mall.model.CmsPrefrenceArea;
++import com.macro.mall.model.CmsPrefrenceAreaExample;
++import com.macro.mall.service.impl.CmsPrefrenceAreaServiceImpl;
++import org.junit.jupiter.api.Test;
++import org.mockito.ArgumentCaptor;
++import org.springframework.context.annotation.AnnotationConfigApplicationContext;
++
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.List;
++
++import static org.junit.jupiter.api.Assertions.*;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.*;
++
++class CmsPrefrenceAreaInjectionTest {
++    @Test
++    void listAndSpringWiring() {
++        CmsPrefrenceAreaMapper mapper = mock(CmsPrefrenceAreaMapper.class);
++        List<CmsPrefrenceArea> empty = Collections.emptyList();
++        CmsPrefrenceArea first = new CmsPrefrenceArea();
++        CmsPrefrenceArea second = new CmsPrefrenceArea();
++        List<CmsPrefrenceArea> expected = Arrays.asList(first, second);
++        when(mapper.selectByExample(any())).thenReturn(empty, expected, expected);
++
++        CmsPrefrenceAreaServiceImpl service = new CmsPrefrenceAreaServiceImpl(mapper);
++        assertTrue(service.listAll().isEmpty());
++        List<CmsPrefrenceArea> actual = service.listAll();
++        assertEquals(2, actual.size());
++        assertSame(first, actual.get(0));
++        assertSame(second, actual.get(1));
++
++        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
++            context.registerBean(CmsPrefrenceAreaMapper.class, () -> mapper);
++            context.register(CmsPrefrenceAreaServiceImpl.class);
++            context.refresh();
++            assertSame(expected, context.getBean(CmsPrefrenceAreaServiceImpl.class).listAll());
++        }
++
++        ArgumentCaptor<CmsPrefrenceAreaExample> examples = ArgumentCaptor.forClass(CmsPrefrenceAreaExample.class);
++        verify(mapper, times(3)).selectByExample(examples.capture());
++        for (CmsPrefrenceAreaExample example : examples.getAllValues()) {
++            assertTrue(example.getOredCriteria().isEmpty());
++            assertNull(example.getOrderByClause());
++            assertFalse(example.isDistinct());
++        }
++    }
++}
+diff --git a/mall-admin/src/main/java/com/macro/mall/service/impl/CmsPrefrenceAreaServiceImpl.java b/mall-admin/src/main/java/com/macro/mall/service/impl/CmsPrefrenceAreaServiceImpl.java
+index 8e95af17..89655c40 100644
+--- a/mall-admin/src/main/java/com/macro/mall/service/impl/CmsPrefrenceAreaServiceImpl.java
++++ b/mall-admin/src/main/java/com/macro/mall/service/impl/CmsPrefrenceAreaServiceImpl.java
+@@ -4,7 +4,6 @@ import com.macro.mall.mapper.CmsPrefrenceAreaMapper;
+ import com.macro.mall.model.CmsPrefrenceArea;
+ import com.macro.mall.model.CmsPrefrenceAreaExample;
+ import com.macro.mall.service.CmsPrefrenceAreaService;
+-import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.stereotype.Service;
+ 
+ import java.util.List;
+@@ -15,8 +14,11 @@ import java.util.List;
+  */
+ @Service
+ public class CmsPrefrenceAreaServiceImpl implements CmsPrefrenceAreaService {
+-    @Autowired
+-    private CmsPrefrenceAreaMapper prefrenceAreaMapper;
++    private final CmsPrefrenceAreaMapper prefrenceAreaMapper;
++
++    public CmsPrefrenceAreaServiceImpl(CmsPrefrenceAreaMapper prefrenceAreaMapper) {
++        this.prefrenceAreaMapper = prefrenceAreaMapper;
++    }
+ 
+     @Override
+     public List<CmsPrefrenceArea> listAll() {
