@@ -1,0 +1,6 @@
+checkout: /private/tmp/mall-e1-01
+base: 7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8
+command: rtk proxy env JAVA_HOME=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home mvn -Dmaven.compiler.proc=full -DskipTests=false -pl mall-portal -am -Dtest=SDCE101ReferenceTest -Dsurefire.failIfNoSpecifiedTests=false test
+result: BUILD SUCCESS; mall-portal: Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+scope: Mockito service observation only; no Spring application context, real database transaction, HTTP request, or rollback test.
+note: JDK 26 was used; explicit compiler proc=full enables Lombok annotation processing. Existing user checkout was not used for writes.
