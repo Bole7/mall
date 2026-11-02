@@ -4,7 +4,7 @@
 
 ## 参考代码入口
 
-本材料对应 mall `SDC/E4`。独立参考分支为 `exp/e4-10`，Issue 链接到该分支的 `SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java`，并将服务实现链接到 `mall-admin/src/main/java/com/macro/mall/service/impl/CmsPrefrenceAreaServiceImpl.java`。参考答案发布在该独立分支，具体 Issue 编号见课程导航。
+本材料对应 mall `SDC/E4`。参考分支 `exp/e4-10` 与 [Issue #50](https://github.com/meng004/mall/issues/50) 已发布；测试位于 `SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java`，服务实现位于 `mall-admin/src/main/java/com/macro/mall/service/impl/CmsPrefrenceAreaServiceImpl.java`。
 
 ## 版本与差异
 
