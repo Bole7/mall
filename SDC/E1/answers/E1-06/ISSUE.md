@@ -20,5 +20,18 @@
 
 - 测试：`mall-portal/src/test/java/com/macro/mall/portal/sdc/SDCE106Test.java`
 - Mockito subclass 配置：`mall-portal/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker`
-- 答案：`SDC/E1/answers/E1-06/README`
+- 答案：`SDC/E1/answers/E1-06/README.md`
 - 日志：`SDC/E1/outputs/E1-06/evidence/fresh-targeted-test.log`
+
+
+## 已发布参考答案
+
+[答案与验证记录](https://github.com/meng004/mall/tree/exp/e1-06/SDC/E1/answers/E1-06)；[参考分支](https://github.com/meng004/mall/tree/exp/e1-06)。
+
+```sh
+git clone --branch exp/e1-06 --single-branch https://github.com/meng004/mall.git mall-e1-06
+cd mall-e1-06
+mvn -pl mall-portal -am -Dtest=SDCE106Test -DskipTests=false -Dsurefire.failIfNoSpecifiedTests=false -Dmaven.compiler.proc=full test
+```
+
+本轮JDK17，2项测试通过，0失败/错误/跳过；只验证真实服务在Mock依赖下的行为，不证明SQL、DB、HTTP或事务。仅供学习，不创建PR、不合入主线。
