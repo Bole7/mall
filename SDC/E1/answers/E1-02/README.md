@@ -32,3 +32,13 @@
 - 新鲜测试运行命令和计数记录在 `run.log`。
 - 测试使用仓库已有的 `mock-maker-subclass` Mockito 模式，避免 JDK 26 inline mock maker 自附加限制。
 - 证据不覆盖其他 CRUD 方法、认证链、事务代理、MyBatis SQL 执行或数据库并发。
+
+## 可复现参考答案
+
+基线 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`；独立分支 `exp/e1-02`。
+
+```sh
+mvn -pl mall-portal -am -Dtest=UmsMemberReceiveAddressObservationTest -Dsurefire.failIfNoSpecifiedTests=false -DskipTests=false -Dmaven.compiler.proc=full test
+```
+
+本轮 JDK 26 定向测试 1 项通过，0失败、0错误、0跳过。首次运行需要联网下载依赖；无须运行依赖数据库的全部测试。
