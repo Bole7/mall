@@ -25,3 +25,13 @@ PmsBrandController.update(id, PmsBrandParam)
 预期：品牌 ID 42 改名为 `New Brand` 时，先向商品 Mapper 传入新名称和唯一条件 `brand_id = 42`，再向品牌 Mapper 传入 ID 42 和新名称；服务返回品牌 Mapper 的结果。`mall-admin/src/test/java/com/macro/mall/service/impl/E105BrandUpdateTest.java` 调用真实服务，以 Mock Mapper 捕获参数并验证顺序及返回值。运行结果和命令见交付日志。
 
 观察限于 Java 调用和传参：未连接数据库，未执行真实 SQL，也未经过 Spring 事务代理或验证回滚、HTTP、搜索索引及并发。接口声明了 `@Transactional`，不能仅凭本测试断言事务是否实际生效。学生仍须本人执行构建、课程只读查询和所选推断核实，保留预期、观察和修正。
+
+## 复现与评审
+
+独立参考分支 `exp/e1-05`，JDK17；仓库根目录运行：
+
+```sh
+mvn -pl mall-admin -am -DskipTests=false -Dmaven.compiler.proc=full -Dtest=E105BrandUpdateTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+本轮主代理复跑1项通过，0失败/错误/跳过，原始日志见 review-test.log。测试资源使用subclass MockMaker，仅建议运行本题定向测试；该配置会影响本分支mall-admin测试模块对final/static对象的模拟能力，未核验该模块全部测试。不创建PR、不合入mall主线。
