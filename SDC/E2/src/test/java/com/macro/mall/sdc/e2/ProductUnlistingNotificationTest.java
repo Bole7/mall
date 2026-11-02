@@ -19,6 +19,8 @@ class ProductUnlistingNotificationTest {
         InMemoryPmsProductUnlistingAdapter adapter = new InMemoryPmsProductUnlistingAdapter();
         adapter.notifyUnlisted(List.of(7L, 8L));
         assertEquals(List.of(7L, 8L), adapter.getNotifiedProductIds());
+        adapter.notifyUnlisted(List.of(9L));
+        assertEquals(List.of(9L), adapter.getNotifiedProductIds());
     }
 
     @Test

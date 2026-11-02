@@ -21,5 +21,7 @@
 
 ```text
 JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home \
-  ./mvnw -pl SDC/E2 -am -DskipTests=false test
+  mvn -pl SDC/E2 -am -DskipTests=false -Dtest=ProductUnlistingNotificationTest -Dsurefire.failIfNoSpecifiedTests=false test
 ```
+
+教学内存适配器只保留最近一批 ID，不累计历史通知；本分支 SDC/E2 测试资源使用 subclass MockMaker，以避开本机 inline agent 自附加失败；这影响本模块 final/static 对象的模拟能力，本轮只验证本题定向测试。
