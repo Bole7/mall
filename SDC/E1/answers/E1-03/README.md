@@ -75,8 +75,8 @@ flowchart LR
 命令：
 
 ```text
-JAVA_HOME=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home \
-PATH=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home/bin:$PATH \
+JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home \
+PATH=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home/bin:$PATH \
 mvn -o -pl SDC/E1 -am test -Dtest=MemberCollectionServiceTest,MallFactsTest \
   -Dsurefire.failIfNoSpecifiedTests=false
 ```
@@ -85,3 +85,13 @@ mvn -o -pl SDC/E1 -am test -Dtest=MemberCollectionServiceTest,MallFactsTest \
 
 未安装/启动 Mongo 或连接 MySQL，也未新增依赖。
 
+
+## 可复现参考答案
+
+基线 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`；独立分支 `exp/e1-03`。
+
+```sh
+mvn -pl SDC/E1 -am -Dtest=MemberCollectionServiceTest,MallFactsTest -Dsurefire.failIfNoSpecifiedTests=false -DskipTests=false -Dmaven.compiler.proc=full test
+```
+
+本轮 JDK 17 定向测试 9（新增6、已有3） 项通过，0失败、0错误、0跳过。首次运行需要联网下载依赖；无须运行依赖数据库的全部测试。
