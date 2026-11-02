@@ -1,0 +1,108 @@
+diff --git a/SDC/E4/pom.xml b/SDC/E4/pom.xml
+index 865bae29..0f6f7924 100644
+--- a/SDC/E4/pom.xml
++++ b/SDC/E4/pom.xml
+@@ -3,5 +3,8 @@
+   <modelVersion>4.0.0</modelVersion>
+   <parent><groupId>com.macro.mall</groupId><artifactId>sdc</artifactId><version>1.0-SNAPSHOT</version></parent>
+   <artifactId>sdc-e4</artifactId><name>SDC E4</name>
+-  <dependencies><dependency><groupId>com.macro.mall</groupId><artifactId>mall-portal</artifactId><version>${project.version}</version><scope>test</scope></dependency></dependencies>
++  <dependencies>
++    <dependency><groupId>com.macro.mall</groupId><artifactId>mall-portal</artifactId><version>${project.version}</version><scope>test</scope></dependency>
++    <dependency><groupId>com.macro.mall</groupId><artifactId>mall-admin</artifactId><version>${project.version}</version><scope>test</scope></dependency>
++  </dependencies>
+ </project>
+diff --git a/SDC/E4/src/test/java/com/macro/mall/sdc/e4/BrandTransactionTest.java b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/BrandTransactionTest.java
+new file mode 100644
+index 00000000..fc6242dc
+--- /dev/null
++++ b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/BrandTransactionTest.java
+@@ -0,0 +1,88 @@
++package com.macro.mall.sdc.e4;
++
++import com.macro.mall.mapper.SmsHomeBrandMapper;
++import com.macro.mall.model.SmsHomeBrand;
++import com.macro.mall.service.SmsHomeBrandService;
++import com.macro.mall.service.impl.SmsHomeBrandServiceImpl;
++import org.junit.jupiter.api.Test;
++import org.springframework.aop.support.AopUtils;
++import org.springframework.context.annotation.AnnotationConfigApplicationContext;
++import org.springframework.context.annotation.Configuration;
++import org.springframework.test.util.ReflectionTestUtils;
++import org.springframework.transaction.PlatformTransactionManager;
++import org.springframework.transaction.annotation.EnableTransactionManagement;
++import org.springframework.transaction.support.SimpleTransactionStatus;
++import java.util.Arrays;
++import static org.junit.jupiter.api.Assertions.*;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.*;
++
++class BrandTransactionTest {
++    interface SelfCallingService extends SmsHomeBrandService {
++        int callCreateInternally();
++    }
++
++    static class SelfCallingFixture extends SmsHomeBrandServiceImpl implements SelfCallingService {
++        public int callCreateInternally() {
++            return create(Arrays.asList(new SmsHomeBrand()));
++        }
++    }
++
++    @Configuration
++    @EnableTransactionManagement
++    static class Config {}
++
++    @Test void selfCallDoesNotGoThroughTransactionProxy() {
++        SmsHomeBrandMapper mapper = mock(SmsHomeBrandMapper.class);
++        PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
++        when(tx.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
++        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
++            context.register(Config.class, SelfCallingFixture.class);
++            context.registerBean(SmsHomeBrandMapper.class, () -> mapper);
++            context.registerBean(PlatformTransactionManager.class, () -> tx);
++            context.refresh();
++            SelfCallingService service = context.getBean(SelfCallingService.class);
++            assertTrue(AopUtils.isAopProxy(service));
++            assertEquals(1, service.callCreateInternally());
++            verifyNoInteractions(tx);
++            assertEquals(1, service.create(Arrays.asList(new SmsHomeBrand())));
++            verify(tx).commit(any());
++        }
++    }
++
++    @Test void proxyCommitsAndRollsBackButDirectInstanceBypassesAdvice() {
++        SmsHomeBrandMapper mapper = mock(SmsHomeBrandMapper.class);
++        PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
++        when(tx.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
++        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
++            context.register(Config.class, SmsHomeBrandServiceImpl.class);
++            context.registerBean(SmsHomeBrandMapper.class, () -> mapper);
++            context.registerBean(PlatformTransactionManager.class, () -> tx);
++            context.refresh();
++            SmsHomeBrandService service = context.getBean(SmsHomeBrandService.class);
++            assertTrue(AopUtils.isAopProxy(service));
++            SmsHomeBrand first = new SmsHomeBrand();
++            SmsHomeBrand second = new SmsHomeBrand();
++            assertEquals(2, service.create(Arrays.asList(first, second)));
++            assertEquals(1, first.getRecommendStatus());
++            assertEquals(0, first.getSort());
++            verify(mapper, times(2)).insert(any());
++            verify(tx).commit(any());
++            verify(tx, never()).rollback(any());
++
++            reset(mapper, tx);
++            when(tx.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
++            when(mapper.insert(any())).thenReturn(1).thenThrow(new IllegalStateException("insert failed"));
++            assertThrows(IllegalStateException.class,
++                    () -> service.create(Arrays.asList(new SmsHomeBrand(), new SmsHomeBrand())));
++            verify(tx).rollback(any());
++            verify(tx, never()).commit(any());
++
++            reset(mapper, tx);
++            SmsHomeBrandServiceImpl direct = new SmsHomeBrandServiceImpl();
++            ReflectionTestUtils.setField(direct, "homeBrandMapper", mapper);
++            assertEquals(1, direct.create(Arrays.asList(new SmsHomeBrand())));
++            verifyNoInteractions(tx);
++        }
++    }
++}
