@@ -1,0 +1,278 @@
+diff --git a/SDC/E1/answers/E1-05/ISSUE.md b/SDC/E1/answers/E1-05/ISSUE.md
+new file mode 100644
+index 00000000..4d8d0460
+--- /dev/null
++++ b/SDC/E1/answers/E1-05/ISSUE.md
+@@ -0,0 +1,14 @@
++# E1-05 品牌改名：追踪名称传播
++
++## 任务
++
++基于 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`，从后台品牌更新入口追踪品牌名称如何传播到商品。范围限于品牌和商品，不修改业务代码或搜索引擎。
++
++## 交付与验收
++
++- 绘制带类名的调用或数据流图，说明品牌和商品表的字段映射、更新条件及调用顺序。
++- 解释 ID 关联和商品名称副本的作用，以及为什么不能只检查品牌表。
++- 在本人环境完成构建、课程只读查询，并对一项具体推断受控核实；记录运行前预期、实际观察、修正与证据。可用 Mock 观察服务调用，须说明其不等于数据库或事务验证。
++- 提交一页说明及不超过两分钟的本人录屏，将代码与证据链接并入同一作品。
++
++入口提示：`PmsBrandController`、`PmsBrandServiceImpl.updateBrand`，以及相关生成 Mapper 和模型。
+diff --git a/SDC/E1/answers/E1-05/README.md b/SDC/E1/answers/E1-05/README.md
+new file mode 100644
+index 00000000..746ae608
+--- /dev/null
++++ b/SDC/E1/answers/E1-05/README.md
+@@ -0,0 +1,37 @@
++# E1-05 品牌改名：导读参考答案
++
++基线：`7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`。范围是后台品牌名称传播，不涉及搜索索引。
++
++```text
++PmsBrandController.update(id, PmsBrandParam)
++  -> PmsBrandServiceImpl.updateBrand(id, param)
++     -> PmsProductMapper.updateByExampleSelective(product, example)
++        product.brandName = param.name; example: brand_id = id
++     -> PmsBrandMapper.updateByPrimaryKeySelective(brand)
++        brand.id = id; brand.name = param.name
++```
++
++| 数据 | 字段 | 来源 / 条件 |
++| --- | --- | --- |
++| 品牌 `pms_brand` | `id`, `name` | 路径参数 `id`，请求参数 `name`；按品牌主键更新 |
++| 商品 `pms_product` | `brand_id`, `brand_name` | `brand_id` 等于同一 `id`；把 `brand_name` 设置为新名称 |
++
++商品以 ID 关联品牌，也保存名称副本；只检查品牌表无法确认商品名称副本是否同步。服务复制品牌参数，设置 ID；首字母为空时取名称首字符。先调用商品更新，再调用品牌更新，返回品牌更新的行数；商品更新的行数未用于返回值。
++
++源码依据：`mall-admin/src/main/java/com/macro/mall/controller/PmsBrandController.java` 的 `update`；`mall-admin/src/main/java/com/macro/mall/service/impl/PmsBrandServiceImpl.java` 的 `updateBrand`；`mall-admin/src/main/java/com/macro/mall/service/PmsBrandService.java` 的事务注解；生成模型与 Mapper 位于 `mall-mbg`。
++
++## 受控核实
++
++预期：品牌 ID 42 改名为 `New Brand` 时，先向商品 Mapper 传入新名称和唯一条件 `brand_id = 42`，再向品牌 Mapper 传入 ID 42 和新名称；服务返回品牌 Mapper 的结果。`mall-admin/src/test/java/com/macro/mall/service/impl/E105BrandUpdateTest.java` 调用真实服务，以 Mock Mapper 捕获参数并验证顺序及返回值。运行结果和命令见交付日志。
++
++观察限于 Java 调用和传参：未连接数据库，未执行真实 SQL，也未经过 Spring 事务代理或验证回滚、HTTP、搜索索引及并发。接口声明了 `@Transactional`，不能仅凭本测试断言事务是否实际生效。学生仍须本人执行构建、课程只读查询和所选推断核实，保留预期、观察和修正。
++
++## 复现与评审
++
++独立参考分支 `exp/e1-05`，JDK17；仓库根目录运行：
++
++```sh
++mvn -pl mall-admin -am -DskipTests=false -Dmaven.compiler.proc=full -Dtest=E105BrandUpdateTest -Dsurefire.failIfNoSpecifiedTests=false test
++```
++
++本轮主代理复跑1项通过，0失败/错误/跳过，原始日志见 review-test.log。本分支 mall-admin 测试资源使用 subclass MockMaker，以避开本机 inline agent 自附加失败；这影响本模块 final/static 对象的模拟能力，只验证本题定向测试，未执行模块全部测试。不创建PR、不合入mall主线。
+diff --git a/SDC/E1/answers/E1-05/review-test.log b/SDC/E1/answers/E1-05/review-test.log
+new file mode 100644
+index 00000000..ba60582e
+--- /dev/null
++++ b/SDC/E1/answers/E1-05/review-test.log
+@@ -0,0 +1,149 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-admin                                                         [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/5]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall ---
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/5]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall-common ---
++[INFO] Deleting /private/tmp/mall-e1-05/mall-common/target
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Recompiling the module because of changed source code.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e1-05/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/5]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall-mbg ---
++[INFO] Deleting /private/tmp/mall-e1-05/mall-mbg/target
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 230 source files with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e1-05/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/5]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall-security ---
++[INFO] Deleting /private/tmp/mall-e1-05/mall-security/target
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e1-05/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e1-05/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++[INFO] /private/tmp/mall-e1-05/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 某些输入文件使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e1-05/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e1-05/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-admin >----------------------
++[INFO] Building mall-admin 1.0-SNAPSHOT                                   [5/5]
++[INFO]   from mall-admin/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall-admin ---
++[INFO] Deleting /private/tmp/mall-e1-05/mall-admin/target
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-admin ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 23 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-admin ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 153 source files with javac [debug parameters release 17] to target/classes
++[WARNING] /private/tmp/mall-e1-05/mall-admin/src/main/java/com/macro/mall/dto/PmsProductParam.java:[15,1] Generating equals/hashCode implementation but without a call to superclass, even though this class does not extend java.lang.Object. If this is intentional, add '@EqualsAndHashCode(callSuper=false)' to your type.
++[INFO] /private/tmp/mall-e1-05/mall-admin/src/main/java/com/macro/mall/config/MallSecurityConfig.java: 某些输入文件使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e1-05/mall-admin/src/main/java/com/macro/mall/config/MallSecurityConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] /private/tmp/mall-e1-05/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java: /private/tmp/mall-e1-05/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java使用了未经检查或不安全的操作。
++[INFO] /private/tmp/mall-e1-05/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-admin ---
++[INFO] Copying 1 resource from src/test/resources to target/test-classes
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-admin ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 1 source file with javac [debug parameters release 17] to target/test-classes
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-admin ---
++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
++[INFO] 
++[INFO] -------------------------------------------------------
++[INFO]  T E S T S
++[INFO] -------------------------------------------------------
++[INFO] Running com.macro.mall.service.impl.E105BrandUpdateTest
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.83 s -- in com.macro.mall.service.impl.E105BrandUpdateTest
++[INFO] 
++[INFO] Results:
++[INFO] 
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
++[INFO] 
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.040 s]
++[INFO] mall-common ........................................ SUCCESS [  1.143 s]
++[INFO] mall-mbg ........................................... SUCCESS [  1.768 s]
++[INFO] mall-security ...................................... SUCCESS [  0.358 s]
++[INFO] mall-admin ......................................... SUCCESS [ 12.232 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD SUCCESS
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  15.732 s
++[INFO] Finished at: 2026-11-02T12:29:25+08:00
++[INFO] ------------------------------------------------------------------------
+diff --git a/mall-admin/src/test/java/com/macro/mall/service/impl/E105BrandUpdateTest.java b/mall-admin/src/test/java/com/macro/mall/service/impl/E105BrandUpdateTest.java
+new file mode 100644
+index 00000000..7c587764
+--- /dev/null
++++ b/mall-admin/src/test/java/com/macro/mall/service/impl/E105BrandUpdateTest.java
+@@ -0,0 +1,47 @@
++package com.macro.mall.service.impl;
++
++import com.macro.mall.dto.PmsBrandParam;
++import com.macro.mall.mapper.PmsBrandMapper;
++import com.macro.mall.mapper.PmsProductMapper;
++import com.macro.mall.model.PmsBrand;
++import com.macro.mall.model.PmsProduct;
++import com.macro.mall.model.PmsProductExample;
++import org.junit.jupiter.api.Test;
++import org.mockito.ArgumentCaptor;
++import org.mockito.InOrder;
++import org.springframework.test.util.ReflectionTestUtils;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.*;
++
++class E105BrandUpdateTest {
++    @Test
++    void propagatesNameToProductsBeforeUpdatingBrand() {
++        PmsBrandMapper brands = mock(PmsBrandMapper.class);
++        PmsProductMapper products = mock(PmsProductMapper.class);
++        PmsBrandServiceImpl service = new PmsBrandServiceImpl();
++        ReflectionTestUtils.setField(service, "brandMapper", brands);
++        ReflectionTestUtils.setField(service, "productMapper", products);
++        when(brands.updateByPrimaryKeySelective(any(PmsBrand.class))).thenReturn(1);
++        PmsBrandParam param = new PmsBrandParam();
++        param.setName("New Brand");
++        param.setFirstLetter("N");
++
++        assertEquals(1, service.updateBrand(42L, param));
++
++        ArgumentCaptor<PmsProduct> product = ArgumentCaptor.forClass(PmsProduct.class);
++        ArgumentCaptor<PmsProductExample> condition = ArgumentCaptor.forClass(PmsProductExample.class);
++        ArgumentCaptor<PmsBrand> brand = ArgumentCaptor.forClass(PmsBrand.class);
++        InOrder order = inOrder(products, brands);
++        order.verify(products).updateByExampleSelective(product.capture(), condition.capture());
++        order.verify(brands).updateByPrimaryKeySelective(brand.capture());
++        assertEquals("New Brand", product.getValue().getBrandName());
++        assertEquals(1, condition.getValue().getOredCriteria().size());
++        assertEquals(1, condition.getValue().getOredCriteria().get(0).getAllCriteria().size());
++        assertEquals("brand_id =", condition.getValue().getOredCriteria().get(0).getAllCriteria().get(0).getCondition());
++        assertEquals(42L, condition.getValue().getOredCriteria().get(0).getAllCriteria().get(0).getValue());
++        assertEquals(42L, brand.getValue().getId());
++        assertEquals("New Brand", brand.getValue().getName());
++    }
++}
+diff --git a/mall-admin/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker b/mall-admin/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker
+new file mode 100644
+index 00000000..fdbd0b15
+--- /dev/null
++++ b/mall-admin/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker
+@@ -0,0 +1 @@
++mock-maker-subclass

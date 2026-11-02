@@ -1,0 +1,370 @@
+diff --git a/SDC/E1/answers/E1-06/ISSUE.md b/SDC/E1/answers/E1-06/ISSUE.md
+new file mode 100644
+index 00000000..4892557b
+--- /dev/null
++++ b/SDC/E1/answers/E1-06/ISSUE.md
+@@ -0,0 +1,37 @@
++# E1-06 首页内容聚合观察任务
++
++## 目标
++
++沿 `HomeController.content()` → `HomeServiceImpl.content()` 追踪六块首页内容，记录每块来源、固定条数／分页边界，并受控核实无当前秒杀活动时的返回结构。
++
++## 范围
++
++只新增观察测试和说明材料，不修改产品代码，不分析支付或订单状态机。
++
++## 验收
++
++- 真实调用 `HomeServiceImpl.content()`。
++- 覆盖广告、品牌、秒杀、新品、人气、专题六块来源。
++- 断言品牌 `(0,6)`、新品／人气／专题 `(0,4)`。
++- 无秒杀活动时断言 `HomeFlashPromotion` 包装对象存在但内部字段为空，且不继续查场次或商品。
++- 明确 Mock 服务观察不等于数据库或端到端验证。
++
++## 交付
++
++- 测试：`mall-portal/src/test/java/com/macro/mall/portal/sdc/SDCE106Test.java`
++- Mockito subclass 配置：`mall-portal/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker`
++- 答案：`SDC/E1/answers/E1-06/README.md`
++- 日志：`SDC/E1/outputs/E1-06/evidence/fresh-targeted-test.log`
++
++
++## 已发布参考答案
++
++[答案与验证记录](https://github.com/meng004/mall/tree/exp/e1-06/SDC/E1/answers/E1-06)；[参考分支](https://github.com/meng004/mall/tree/exp/e1-06)。
++
++```sh
++git clone --branch exp/e1-06 --single-branch https://github.com/meng004/mall.git mall-e1-06
++cd mall-e1-06
++mvn -pl mall-portal -am -Dtest=SDCE106Test -DskipTests=false -Dsurefire.failIfNoSpecifiedTests=false -Dmaven.compiler.proc=full test
++```
++
++本轮JDK17，2项测试通过，0失败/错误/跳过；只验证真实服务在Mock依赖下的行为，不证明SQL、DB、HTTP或事务。仅供学习，不创建PR、不合入主线。
+diff --git a/SDC/E1/answers/E1-06/README.md b/SDC/E1/answers/E1-06/README.md
+new file mode 100644
+index 00000000..ad0ead80
+--- /dev/null
++++ b/SDC/E1/answers/E1-06/README.md
+@@ -0,0 +1,65 @@
++# E1-06 首页内容聚合观察答案
++
++## 结论
++
++`HomeServiceImpl.content()` 在一次服务调用中组装六块内容：广告、推荐品牌、当前秒杀、新品、人气商品和推荐专题。广告来自 `SmsHomeAdvertiseMapper`；品牌、新品、人气、专题来自 `HomeDao`；秒杀先查 `SmsFlashPromotionMapper`，有当前活动后再查场次 Mapper、下一场和 `HomeDao.getFlashProductList`。
++
++首页聚合入口固定传入品牌 `(offset=0, limit=6)`，新品、人气、专题均为 `(0,4)`。这不是分页接口；单独的新品／人气方法才按 `pageNum/pageSize` 计算 offset。广告按类型、状态筛选并按 `sort desc`，具体 SQL 见 `HomeServiceImpl.java:141-145`。HomeDao 的四个列表查询使用 SQL `LIMIT`，并分别限制可推荐、已上架或已展示记录。
++
++```mermaid
++flowchart LR
++  C[HomeController.content] --> S[HomeServiceImpl.content]
++  S --> A[广告列表]
++  S --> B[推荐品牌]
++  S --> F[秒杀包装对象]
++  S --> N[新品推荐]
++  S --> H[人气商品]
++  S --> T[推荐专题]
++  A --> AM[SmsHomeAdvertiseMapper]
++  B --> D[HomeDao]
++  N --> D
++  H --> D
++  T --> D
++  F --> FM[SmsFlashPromotionMapper]
++  F --> SM[SmsFlashPromotionSessionMapper]
++  F --> D
++```
++
++无当前秒杀活动时，`getHomeFlashPromotion()` 仍返回一个新建的 `HomeFlashPromotion`；其开始／结束时间、下一场时间和商品列表均为 `null`，首页其它五块仍正常聚合。旧执行计划中的 `assertNull(result.getHomeFlashPromotion())` 与基线实现不符，本次测试按实际代码核实并纠正。
++
++## 受控观察
++
++测试文件：`mall-portal/src/test/java/com/macro/mall/portal/sdc/SDCE106Test.java`。
++
++- `contentAggregatesSixSectionsFromTheirDependencies`：为广告 Mapper、HomeDao、当前活动和秒杀场次提供人工数据，调用真实 `HomeServiceImpl.content()`，断言六块内容、下一场信息和固定参数。
++- `missingCampaignLeavesAnEmptyFlashPromotionWrapperWithoutBreakingHomeContent`：单独验证无活动边界，包装对象非空、内部字段为空，且没有继续查询场次或商品。
++
++这是 Mock 替换外部数据依赖后的服务层观察测试。它验证真实服务方法的聚合参数和对象结构，不是数据库、MyBatis SQL、HTTP 或端到端集成测试。首次 JDK 17 执行因仓库默认 Mockito inline maker 无法自附加失败；复用项目现有 `mock-maker-subclass` 配置后定向测试通过。
++
++## 代码依据
++
++- 入口与六次赋值：`mall-portal/src/main/java/com/macro/mall/portal/service/impl/HomeServiceImpl.java:40-55`
++- 秒杀边界：同文件 `103-125`、`148-160`
++- HomeDao 方法签名：`mall-portal/src/main/java/com/macro/mall/portal/dao/HomeDao.java:20-39`
++- SQL 条件与 LIMIT：`mall-portal/src/main/resources/dao/HomeDao.xml:11-75`
++- HTTP 入口：`mall-portal/src/main/java/com/macro/mall/portal/controller/HomeController.java:28-34`
++
++## 运行
++
++- checkout：`/private/tmp/mall-e1-06`
++- base：`7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`
++
++```sh
++rtk env JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home \
++  PATH=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home/bin:$PATH \
++  mvn -pl mall-portal -am -DskipTests=false -Dtest=SDCE106Test \
++  -Dsurefire.failIfNoSpecifiedTests=false -Ddocker.skip=true test
++```
++
++结果：`Tests run: 2, Failures: 0, Errors: 0, Skipped: 0`，`BUILD SUCCESS`。
++
++## 未验证范围
++
++未连接 MySQL、Redis、消息队列或启动 Spring Boot；未验证真实 SQL 结果、数据库排序／分页、HTTP 序列化、并发、缓存和生产配置。人工列表也不代表线上数据量或数据质量。
++
++原始测试日志：[fresh-targeted-test.log](../../outputs/E1-06/evidence/fresh-targeted-test.log)。独立参考分支`exp/e1-06`；Mockito subclass配置限于本教学分支的定向测试，未验证portal全部测试。
+diff --git a/SDC/E1/outputs/E1-06/evidence/fresh-targeted-test.log b/SDC/E1/outputs/E1-06/evidence/fresh-targeted-test.log
+new file mode 100644
+index 00000000..5cdd8056
+--- /dev/null
++++ b/SDC/E1/outputs/E1-06/evidence/fresh-targeted-test.log
+@@ -0,0 +1,127 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-portal                                                        [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/5]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/5]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e1-06/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/5]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e1-06/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/5]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e1-06/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e1-06/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e1-06/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [5/5]
++[INFO]   from mall-portal/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 5 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
++[INFO] Copying 1 resource from src/test/resources to target/test-classes
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
++[INFO] Recompiling the module because of changed source code.
++[INFO] Compiling 3 source files with javac [debug parameters release 17] to target/test-classes
++[INFO] /private/tmp/mall-e1-06/mall-portal/src/test/java/com/macro/mall/portal/sdc/SDCE106Test.java: /private/tmp/mall-e1-06/mall-portal/src/test/java/com/macro/mall/portal/sdc/SDCE106Test.java使用了未经检查或不安全的操作。
++[INFO] /private/tmp/mall-e1-06/mall-portal/src/test/java/com/macro/mall/portal/sdc/SDCE106Test.java: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
++[INFO] 
++[INFO] -------------------------------------------------------
++[INFO]  T E S T S
++[INFO] -------------------------------------------------------
++[INFO] Running com.macro.mall.portal.sdc.SDCE106Test
++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
++[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.80 s -- in com.macro.mall.portal.sdc.SDCE106Test
++[INFO] 
++[INFO] Results:
++[INFO] 
++[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
++[INFO] 
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.001 s]
++[INFO] mall-common ........................................ SUCCESS [  0.287 s]
++[INFO] mall-mbg ........................................... SUCCESS [  0.080 s]
++[INFO] mall-security ...................................... SUCCESS [  0.019 s]
++[INFO] mall-portal ........................................ SUCCESS [ 11.591 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD SUCCESS
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  12.114 s
++[INFO] Finished at: 2026-11-02T09:46:52+08:00
++[INFO] ------------------------------------------------------------------------
+diff --git a/mall-portal/src/test/java/com/macro/mall/portal/sdc/SDCE106Test.java b/mall-portal/src/test/java/com/macro/mall/portal/sdc/SDCE106Test.java
+new file mode 100644
+index 00000000..cabb78f3
+--- /dev/null
++++ b/mall-portal/src/test/java/com/macro/mall/portal/sdc/SDCE106Test.java
+@@ -0,0 +1,110 @@
++package com.macro.mall.portal.sdc;
++
++import com.macro.mall.mapper.*;
++import com.macro.mall.model.*;
++import com.macro.mall.portal.dao.HomeDao;
++import com.macro.mall.portal.domain.FlashPromotionProduct;
++import com.macro.mall.portal.domain.HomeContentResult;
++import com.macro.mall.portal.domain.HomeFlashPromotion;
++import com.macro.mall.portal.service.impl.HomeServiceImpl;
++import org.junit.jupiter.api.Test;
++import org.springframework.test.util.ReflectionTestUtils;
++
++import java.util.List;
++import java.util.Date;
++
++import static org.junit.jupiter.api.Assertions.*;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.*;
++
++class SDCE106Test {
++    @Test
++    void contentAggregatesSixSectionsFromTheirDependencies() {
++        HomeServiceImpl service = new HomeServiceImpl();
++        SmsHomeAdvertiseMapper advertiseMapper = mock(SmsHomeAdvertiseMapper.class, withSettings().mockMaker("mock-maker-subclass"));
++        HomeDao homeDao = mock(HomeDao.class, withSettings().mockMaker("mock-maker-subclass"));
++        SmsFlashPromotionMapper flashPromotionMapper = mock(SmsFlashPromotionMapper.class, withSettings().mockMaker("mock-maker-subclass"));
++        SmsFlashPromotionSessionMapper sessionMapper = mock(SmsFlashPromotionSessionMapper.class, withSettings().mockMaker("mock-maker-subclass"));
++        inject(service, advertiseMapper, homeDao, flashPromotionMapper, sessionMapper);
++
++        List<SmsHomeAdvertise> adverts = List.of(new SmsHomeAdvertise());
++        List<PmsBrand> brands = List.of(new PmsBrand());
++        List<PmsProduct> newProducts = List.of(new PmsProduct());
++        List<PmsProduct> hotProducts = List.of(new PmsProduct());
++        List<CmsSubject> subjects = List.of(new CmsSubject());
++        SmsFlashPromotion promotion = new SmsFlashPromotion();
++        promotion.setId(51L);
++        SmsFlashPromotionSession session = new SmsFlashPromotionSession();
++        session.setId(52L);
++        session.setStartTime(new Date(1_000L));
++        session.setEndTime(new Date(2_000L));
++        SmsFlashPromotionSession nextSession = new SmsFlashPromotionSession();
++        nextSession.setStartTime(new Date(3_000L));
++        nextSession.setEndTime(new Date(4_000L));
++        List<FlashPromotionProduct> flashProducts = List.of(new FlashPromotionProduct());
++        when(advertiseMapper.selectByExample(any(SmsHomeAdvertiseExample.class))).thenReturn(adverts);
++        when(flashPromotionMapper.selectByExample(any(SmsFlashPromotionExample.class))).thenReturn(List.of(promotion));
++        when(sessionMapper.selectByExample(any(SmsFlashPromotionSessionExample.class)))
++                .thenReturn(List.of(session), List.of(nextSession));
++        when(homeDao.getRecommendBrandList(0, 6)).thenReturn(brands);
++        when(homeDao.getNewProductList(0, 4)).thenReturn(newProducts);
++        when(homeDao.getHotProductList(0, 4)).thenReturn(hotProducts);
++        when(homeDao.getRecommendSubjectList(0, 4)).thenReturn(subjects);
++        when(homeDao.getFlashProductList(51L, 52L)).thenReturn(flashProducts);
++
++        HomeContentResult result = service.content();
++
++        assertSame(adverts, result.getAdvertiseList());
++        assertSame(brands, result.getBrandList());
++        assertSame(newProducts, result.getNewProductList());
++        assertSame(hotProducts, result.getHotProductList());
++        assertSame(subjects, result.getSubjectList());
++        assertNotNull(result.getHomeFlashPromotion());
++        assertSame(session.getStartTime(), result.getHomeFlashPromotion().getStartTime());
++        assertSame(session.getEndTime(), result.getHomeFlashPromotion().getEndTime());
++        assertSame(nextSession.getStartTime(), result.getHomeFlashPromotion().getNextStartTime());
++        assertSame(nextSession.getEndTime(), result.getHomeFlashPromotion().getNextEndTime());
++        assertSame(flashProducts, result.getHomeFlashPromotion().getProductList());
++        verify(homeDao).getRecommendBrandList(0, 6);
++        verify(homeDao).getNewProductList(0, 4);
++        verify(homeDao).getHotProductList(0, 4);
++        verify(homeDao).getRecommendSubjectList(0, 4);
++        verify(homeDao).getFlashProductList(51L, 52L);
++        verify(sessionMapper, times(2)).selectByExample(any(SmsFlashPromotionSessionExample.class));
++    }
++
++    @Test
++    void missingCampaignLeavesAnEmptyFlashPromotionWrapperWithoutBreakingHomeContent() {
++        HomeServiceImpl service = new HomeServiceImpl();
++        SmsHomeAdvertiseMapper advertiseMapper = mock(SmsHomeAdvertiseMapper.class, withSettings().mockMaker("mock-maker-subclass"));
++        HomeDao homeDao = mock(HomeDao.class, withSettings().mockMaker("mock-maker-subclass"));
++        SmsFlashPromotionMapper flashPromotionMapper = mock(SmsFlashPromotionMapper.class, withSettings().mockMaker("mock-maker-subclass"));
++        SmsFlashPromotionSessionMapper sessionMapper = mock(SmsFlashPromotionSessionMapper.class, withSettings().mockMaker("mock-maker-subclass"));
++        inject(service, advertiseMapper, homeDao, flashPromotionMapper, sessionMapper);
++        when(advertiseMapper.selectByExample(any(SmsHomeAdvertiseExample.class))).thenReturn(List.of());
++        when(flashPromotionMapper.selectByExample(any(SmsFlashPromotionExample.class))).thenReturn(List.of());
++
++        HomeContentResult result = service.content();
++
++        assertNotNull(result);
++        assertNotNull(result.getHomeFlashPromotion());
++        HomeFlashPromotion flash = result.getHomeFlashPromotion();
++        assertNull(flash.getStartTime());
++        assertNull(flash.getEndTime());
++        assertNull(flash.getNextStartTime());
++        assertNull(flash.getNextEndTime());
++        assertNull(flash.getProductList());
++        verify(flashPromotionMapper).selectByExample(any(SmsFlashPromotionExample.class));
++        verify(sessionMapper, never()).selectByExample(any(SmsFlashPromotionSessionExample.class));
++        verify(homeDao, never()).getFlashProductList(any(), any());
++    }
++
++    private static void inject(HomeServiceImpl service, SmsHomeAdvertiseMapper advertiseMapper,
++                               HomeDao homeDao, SmsFlashPromotionMapper flashPromotionMapper,
++                               SmsFlashPromotionSessionMapper sessionMapper) {
++        ReflectionTestUtils.setField(service, "advertiseMapper", advertiseMapper);
++        ReflectionTestUtils.setField(service, "homeDao", homeDao);
++        ReflectionTestUtils.setField(service, "flashPromotionMapper", flashPromotionMapper);
++        ReflectionTestUtils.setField(service, "promotionSessionMapper", sessionMapper);
++    }
++}
+diff --git a/mall-portal/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker b/mall-portal/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker
+new file mode 100644
+index 00000000..fdbd0b15
+--- /dev/null
++++ b/mall-portal/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker
+@@ -0,0 +1 @@
++mock-maker-subclass

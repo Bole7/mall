@@ -1,0 +1,1429 @@
+diff --git a/SDC/E4/answers/E4-08/ISSUE.md b/SDC/E4/answers/E4-08/ISSUE.md
+new file mode 100644
+index 00000000..46877b8c
+--- /dev/null
++++ b/SDC/E4/answers/E4-08/ISSUE.md
+@@ -0,0 +1,36 @@
++## E4-08 管理员服务与缓存服务的循环依赖（进阶）
++
++## 靶点与学习目标
++
++- `UmsAdminCacheServiceImpl` 注入 `UmsAdminService`，`delAdmin` 按 ID 调用 `getItem` 回查用户名。
++- `UmsAdminServiceImpl` 通过 `SpringUtil.getBean` 定位缓存服务，掩盖了服务间回边；`UmsAdminService` 暴露的 `getCacheService()` 没有外部调用者。
++- 对照 portal 的 `UmsMemberCacheServiceImpl` 直接使用 `UmsMemberMapper`。
++- 比较依赖注入与服务定位器、接口隔离及测试接缝；先消除真实回边，再替换服务定位器，避免只把隐式循环换成显式循环。
++
++## 任务与约束
++
++1. 比较缓存实现直接使用 Mapper、失效参数携带用户名两种方案的行为和代价，选择一种实现并画出修改前后的依赖关系。
++2. 检查所有调用方，移除管理员服务接口的 `getCacheService()`，以构造注入替代 `SpringUtil` 定位。
++3. 保持缓存 key、失效时机和公开 HTTP 路径；不顺便修复原有缓存行为。
++4. 编写特征测试，覆盖改密、更新、删除及管理员不存在时的缓存失效；检查 Redis 调用与用户名的数据来源。在实际 Spring 容器中验证相关服务可以装配。
++
++## 验收依据
++
++- 同一组特征输入在修改前后结果一致，注明测试使用的替身与实际运行范围。
++- 生产代码中管理员服务的 `SpringUtil` 使用从 1 处减少到 0；缓存实现不再反向依赖管理员服务。
++- 说明两种设计的代价、依赖图，以及旧版依赖服务定位器带来的测试接缝问题。
++- 注意原有删除行为：删除数据库记录后再查询用户名；若记录不存在，则不删除管理员缓存，仍删除资源缓存。用户名被更新时，失效查询取得的是更新后的用户名。这些行为本题保留，并非宣称其符合所有业务预期。
++
++## 参考实现与证据
++
++参考分支：[exp/e4-08](https://github.com/meng004/mall/tree/exp/e4-08)，答案目录：[SDC/E4/answers/E4-08](https://github.com/meng004/mall/tree/exp/e4-08/SDC/E4/answers/E4-08)。从仓库根目录用 JDK 17 复现：
++
++```sh
++git clone --branch exp/e4-08 --single-branch https://github.com/meng004/mall.git mall-e4-08
++cd mall-e4-08
++mvn -pl SDC/E4 -am -DskipTests=false -Dtest=AdminCacheWiringTest -Dsurefire.failIfNoSpecifiedTests=false test
++```
++
++采用 Mapper 直接查询，管理员服务构造注入缓存服务；同一套测试修改前、修改后均 4/4 通过，含最小 Spring 容器装配。Mapper 和 Redis 使用 Mockito 替身，未验证真实数据库与 Redis。
++
++本次实现基于 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`；题目原有 `baseline-dcaa93b3` 是历史 Issue 基线，并非本次比较的 base。JDK 17 下 test 阶段编译成功；额外 package 两次均在 Docker 镜像阶段因环境权限失败，不声称打包成功。
+diff --git a/SDC/E4/answers/E4-08/README.md b/SDC/E4/answers/E4-08/README.md
+new file mode 100644
+index 00000000..3191ffe8
+--- /dev/null
++++ b/SDC/E4/answers/E4-08/README.md
+@@ -0,0 +1,67 @@
++# E4-08 管理员与缓存循环依赖
++
++参考分支：[exp/e4-08](https://github.com/meng004/mall/tree/exp/e4-08)；答案目录：[SDC/E4/answers/E4-08](https://github.com/meng004/mall/tree/exp/e4-08/SDC/E4/answers/E4-08)。仅作学习参考，不创建 PR，不合入 mall 主线。
++
++## 结论
++
++采用缓存实现直接依赖 `UmsAdminMapper`。`delAdmin(id)` 仍在失效时按 ID 查询管理员并用用户名拼出原缓存 key；管理员不存在时仍不调用 Redis。管理员业务服务以构造器注入 `UmsAdminCacheService`，删除 `UmsAdminService.getCacheService()` 和 `SpringUtil` 定位。
++
++## 依赖与接缝
++
++改前：
++
++```text
++UmsAdminServiceImpl --(SpringUtil 定位)--> UmsAdminCacheServiceImpl
++UmsAdminCacheServiceImpl --> UmsAdminService --> UmsAdminMapper
++```
++
++改后：
++
++```text
++UmsAdminServiceImpl --> UmsAdminCacheService
++UmsAdminCacheServiceImpl --> UmsAdminMapper
++UmsAdminServiceImpl --> UmsAdminMapper
++```
++
++没有服务层回边，也不再通过全局上下文定位缓存服务。管理员服务的构造器明确暴露缓存协作者，测试可直接传入替身。公开 HTTP 路径未改。
++
++## 方案比较与代价
++
++方案 A（采用）：缓存服务注入 `UmsAdminMapper`。删除逻辑只需读取用户名，Mapper 是该数据的直接访问边界；保留原查询时机、ID 参数和不存在时跳过 Redis 的分支。代价是缓存服务直接依赖持久层 Mapper，和 portal 的会员缓存实现一致。
++
++方案 B：把用户名传入 `delAdmin(id, username)`。这会让每个失效调用者都需携带并保证用户名正确；删除、改密、更新等路径当前并非都天然持有可信用户名。接口更复杂，也可能在用户名修改场景用旧/新值失效错误 key。
++
++不采用方案 B，因为该失效操作需要通过 ID 得到 key 所需用户名，直接 Mapper 查询是最小正确方案。
++
++既有行为的限制：删除先删除数据库记录再查询用户名；查不到时不会删除管理员缓存。更新用户名后失效查询读取更新后的用户名，可能留下旧用户名对应的缓存。本次按题目要求保留这些行为，并不表示它们符合所有业务预期。
++
++## 行为与证据
++
++- `AdminCacheWiringTest` 同一份测试改前、改后均为 4 项通过：更新、删除、改密仍调用相同失效方法；删除先落 Mapper 再按原顺序删除管理员与资源缓存；缓存服务用查询到的用户名删除 `mall:admin:ada`，管理员不存在时不访问 Redis；删除后查询不到管理员时只删除资源缓存。测试通过反射适配两版构造器和缓存查询，旧版为 `SpringUtil` 设置上下文替身。
++- 同一测试以真实 Spring `AnnotationConfigApplicationContext` 装配管理员服务、缓存服务和 Mapper/Redis/JWT/密码编码替身，容器启动成功。旧版也能启动，因为服务定位器延迟了回边；容器启动本身不证明旧版没有逻辑回边。
++- `before-feature-tests.log` 与 `after-feature-tests.log` 是同一测试前后完整日志；`before-mall-admin-test.log` 与 `after-mall-admin-test.log` 是同一编译命令的日志，均成功并跳过测试。`before-mall-admin-build.log` 与 `after-mall-admin-build.log` 保留了额外的 package 尝试：均在 Docker 镜像阶段因无权限失败，不能称为打包成功。
++- 测试中的 Mapper、Redis 是 Mockito 替身；未声称验证真实数据库或 Redis。
++
++## 版本基线
++
++本次隔离 checkout：`/private/tmp/mall-e408`。本次 base：`7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`；它与线上题面标记的历史 Issue 基线 `baseline-dcaa93b3` 不同。前后日志均从本次 base 产生，不能把它们描述成历史 Issue 基线的结果。
++
++## 学生复现
++
++从仓库根目录执行，JDK 17：
++
++```bash
++git clone --branch exp/e4-08 --single-branch https://github.com/meng004/mall.git mall-e4-08
++cd mall-e4-08
++mvn -pl SDC/E4 -am -DskipTests=false -Dtest=AdminCacheWiringTest -Dsurefire.failIfNoSpecifiedTests=false test
++```
++
++## 本轮运行记录
++
++本轮隔离 checkout 使用 JDK 17 与 RTK 包装的等价命令，保留完整历史日志：
++
++```bash
++rtk env JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home PATH=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home/bin:$PATH rtk proxy mvn -pl SDC/E4 -am -DskipTests=false -Dsurefire.failIfNoSpecifiedTests=false -Dtest=AdminCacheWiringTest test
++```
++
++结果：4 tests, 0 failures, 0 errors, 0 skipped。学生命令不依赖本机绝对路径。
+diff --git a/SDC/E4/answers/E4-08/after-feature-tests.log b/SDC/E4/answers/E4-08/after-feature-tests.log
+new file mode 100644
+index 00000000..a110d8ca
+--- /dev/null
++++ b/SDC/E4/answers/E4-08/after-feature-tests.log
+@@ -0,0 +1,183 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-admin                                                         [jar]
++[INFO] mall-portal                                                        [jar]
++[INFO] SDC - software design and conventions                              [pom]
++[INFO] SDC E4                                                             [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/8]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/8]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/8]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/8]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-admin >----------------------
++[INFO] Building mall-admin 1.0-SNAPSHOT                                   [5/8]
++[INFO]   from mall-admin/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-admin ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 23 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-admin ---
++[INFO] Recompiling the module because of changed source code.
++[INFO] Compiling 153 source files with javac [debug parameters release 17] to target/classes
++[WARNING] /private/tmp/mall-e408/mall-admin/src/main/java/com/macro/mall/dto/PmsProductParam.java:[15,1] Generating equals/hashCode implementation but without a call to superclass, even though this class does not extend java.lang.Object. If this is intentional, add '@EqualsAndHashCode(callSuper=false)' to your type.
++[INFO] /private/tmp/mall-e408/mall-admin/src/main/java/com/macro/mall/config/MallSecurityConfig.java: 某些输入文件使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e408/mall-admin/src/main/java/com/macro/mall/config/MallSecurityConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] /private/tmp/mall-e408/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java: /private/tmp/mall-e408/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java使用了未经检查或不安全的操作。
++[INFO] /private/tmp/mall-e408/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-admin ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-admin/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-admin ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-admin ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [6/8]
++[INFO]   from mall-portal/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 5 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-portal/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
++[INFO] 
++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [7/8]
++[INFO]   from SDC/pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] -----------------------< com.macro.mall:sdc-e4 >------------------------
++[INFO] Building SDC E4 1.0-SNAPSHOT                                       [8/8]
++[INFO]   from SDC/E4/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e4 ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/SDC/E4/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/SDC/E4/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e4 ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e4 ---
++[INFO] Copying 1 resource from src/test/resources to target/test-classes
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e4 ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e4 ---
++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
++[INFO] 
++[INFO] -------------------------------------------------------
++[INFO]  T E S T S
++[INFO] -------------------------------------------------------
++[INFO] Running com.macro.mall.sdc.e4.AdminCacheWiringTest
++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
++[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.96 s -- in com.macro.mall.sdc.e4.AdminCacheWiringTest
++[INFO] 
++[INFO] Results:
++[INFO] 
++[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
++[INFO] 
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.001 s]
++[INFO] mall-common ........................................ SUCCESS [  0.344 s]
++[INFO] mall-mbg ........................................... SUCCESS [  0.110 s]
++[INFO] mall-security ...................................... SUCCESS [  0.025 s]
++[INFO] mall-admin ......................................... SUCCESS [  1.322 s]
++[INFO] mall-portal ........................................ SUCCESS [  0.060 s]
++[INFO] SDC - software design and conventions .............. SUCCESS [  0.000 s]
++[INFO] SDC E4 ............................................. SUCCESS [ 11.556 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD SUCCESS
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  13.557 s
++[INFO] Finished at: 2026-11-02T12:27:39+08:00
++[INFO] ------------------------------------------------------------------------
+diff --git a/SDC/E4/answers/E4-08/after-mall-admin-build.log b/SDC/E4/answers/E4-08/after-mall-admin-build.log
+new file mode 100644
+index 00000000..01cdc690
+--- /dev/null
++++ b/SDC/E4/answers/E4-08/after-mall-admin-build.log
+@@ -0,0 +1,151 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-admin                                                         [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/5]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/5]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] --- jar:3.4.2:jar (default-jar) @ mall-common ---
++[INFO] Building jar: /private/tmp/mall-e408/mall-common/target/mall-common-1.0-SNAPSHOT.jar
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/5]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 230 source files with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] --- jar:3.4.2:jar (default-jar) @ mall-mbg ---
++[INFO] Building jar: /private/tmp/mall-e408/mall-mbg/target/mall-mbg-1.0-SNAPSHOT.jar
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/5]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++[INFO] /private/tmp/mall-e408/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 某些输入文件使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e408/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] --- jar:3.4.2:jar (default-jar) @ mall-security ---
++[INFO] Building jar: /private/tmp/mall-e408/mall-security/target/mall-security-1.0-SNAPSHOT.jar
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-admin >----------------------
++[INFO] Building mall-admin 1.0-SNAPSHOT                                   [5/5]
++[INFO]   from mall-admin/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-admin ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 23 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-admin ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 153 source files with javac [debug parameters release 17] to target/classes
++[WARNING] /private/tmp/mall-e408/mall-admin/src/main/java/com/macro/mall/dto/PmsProductParam.java:[15,1] Generating equals/hashCode implementation but without a call to superclass, even though this class does not extend java.lang.Object. If this is intentional, add '@EqualsAndHashCode(callSuper=false)' to your type.
++[INFO] /private/tmp/mall-e408/mall-admin/src/main/java/com/macro/mall/config/MallSecurityConfig.java: 某些输入文件使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e408/mall-admin/src/main/java/com/macro/mall/config/MallSecurityConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] /private/tmp/mall-e408/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java: /private/tmp/mall-e408/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java使用了未经检查或不安全的操作。
++[INFO] /private/tmp/mall-e408/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-admin ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-admin/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-admin ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-admin ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] --- jar:3.4.2:jar (default-jar) @ mall-admin ---
++[INFO] Building jar: /private/tmp/mall-e408/mall-admin/target/mall-admin-1.0-SNAPSHOT.jar
++[INFO] 
++[INFO] --- spring-boot:3.5.14:repackage (repackage) @ mall-admin ---
++[INFO] Replacing main artifact /private/tmp/mall-e408/mall-admin/target/mall-admin-1.0-SNAPSHOT.jar with repackaged archive, adding nested dependencies in BOOT-INF/.
++[INFO] The original artifact has been renamed to /private/tmp/mall-e408/mall-admin/target/mall-admin-1.0-SNAPSHOT.jar.original
++[INFO] 
++[INFO] --- docker:0.45.1:build (build-image) @ mall-admin ---
++[ERROR] DOCKER> Cannot create docker access object  [Operation not permitted]
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.001 s]
++[INFO] mall-common ........................................ SUCCESS [  0.401 s]
++[INFO] mall-mbg ........................................... SUCCESS [  1.843 s]
++[INFO] mall-security ...................................... SUCCESS [  0.345 s]
++[INFO] mall-admin ......................................... FAILURE [  1.341 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD FAILURE
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  4.070 s
++[INFO] Finished at: 2026-11-02T10:17:20+08:00
++[INFO] ------------------------------------------------------------------------
++[ERROR] Failed to execute goal io.fabric8:docker-maven-plugin:0.45.1:build (build-image) on project mall-admin: Cannot create docker access object : Operation not permitted -> [Help 1]
++[ERROR] 
++[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
++[ERROR] Re-run Maven using the -X switch to enable full debug logging.
++[ERROR] 
++[ERROR] For more information about the errors and possible solutions, please read the following articles:
++[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoExecutionException
++[ERROR] 
++[ERROR] After correcting the problems, you can resume the build with the command
++[ERROR]   mvn <args> -rf :mall-admin
+diff --git a/SDC/E4/answers/E4-08/after-mall-admin-test.log b/SDC/E4/answers/E4-08/after-mall-admin-test.log
+new file mode 100644
+index 00000000..bf3c075a
+--- /dev/null
++++ b/SDC/E4/answers/E4-08/after-mall-admin-test.log
+@@ -0,0 +1,112 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-admin                                                         [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/5]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/5]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/5]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/5]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-admin >----------------------
++[INFO] Building mall-admin 1.0-SNAPSHOT                                   [5/5]
++[INFO]   from mall-admin/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-admin ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 23 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-admin ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-admin ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408/mall-admin/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-admin ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-admin ---
++[INFO] Tests are skipped.
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.001 s]
++[INFO] mall-common ........................................ SUCCESS [  0.288 s]
++[INFO] mall-mbg ........................................... SUCCESS [  0.082 s]
++[INFO] mall-security ...................................... SUCCESS [  0.019 s]
++[INFO] mall-admin ......................................... SUCCESS [  0.072 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD SUCCESS
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  0.612 s
++[INFO] Finished at: 2026-11-02T10:30:06+08:00
++[INFO] ------------------------------------------------------------------------
+diff --git a/SDC/E4/answers/E4-08/after-structure.log b/SDC/E4/answers/E4-08/after-structure.log
+new file mode 100644
+index 00000000..1dc2d7a7
+--- /dev/null
++++ b/SDC/E4/answers/E4-08/after-structure.log
+@@ -0,0 +1,4 @@
++mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminServiceImpl.java:52:    private UmsAdminMapper adminMapper;
++mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java:27:    private UmsAdminMapper adminMapper;
++mall-admin/src/main/java/com/macro/mall/config/MallSecurityConfig.java:25:    private UmsAdminService adminService;
++mall-admin/src/main/java/com/macro/mall/controller/UmsAdminController.java:42:    private UmsAdminService adminService;
+diff --git a/SDC/E4/answers/E4-08/before-admin-structure.log b/SDC/E4/answers/E4-08/before-admin-structure.log
+new file mode 100644
+index 00000000..aa3058ed
+--- /dev/null
++++ b/SDC/E4/answers/E4-08/before-admin-structure.log
+@@ -0,0 +1,6 @@
++17:import com.macro.mall.security.util.SpringUtil;
++63:        UmsAdmin admin = getCacheService().getAdmin(username);
++72:            getCacheService().setAdmin(admin);
++186:        getCacheService().delAdmin(id);
++193:        getCacheService().delAdmin(id);
++194:        getCacheService().delResourceList(id);
+diff --git a/SDC/E4/answers/E4-08/before-cache-structure.log b/SDC/E4/answers/E4-08/before-cache-structure.log
+new file mode 100644
+index 00000000..c15ec4ae
+--- /dev/null
++++ b/SDC/E4/answers/E4-08/before-cache-structure.log
+@@ -0,0 +1,4 @@
++12:import com.macro.mall.service.UmsAdminService;
++27:    private UmsAdminService adminService;
++44:    public void delAdmin(Long adminId) {
++45:        UmsAdmin admin = adminService.getItem(adminId);
+diff --git a/SDC/E4/answers/E4-08/before-feature-tests.log b/SDC/E4/answers/E4-08/before-feature-tests.log
+new file mode 100644
+index 00000000..ab078bef
+--- /dev/null
++++ b/SDC/E4/answers/E4-08/before-feature-tests.log
+@@ -0,0 +1,177 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-admin                                                         [jar]
++[INFO] mall-portal                                                        [jar]
++[INFO] SDC - software design and conventions                              [pom]
++[INFO] SDC E4                                                             [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/8]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/8]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/8]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/8]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-admin >----------------------
++[INFO] Building mall-admin 1.0-SNAPSHOT                                   [5/8]
++[INFO]   from mall-admin/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-admin ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 23 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-admin ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-admin ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-admin/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-admin ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-admin ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [6/8]
++[INFO]   from mall-portal/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 5 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-portal/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
++[INFO] 
++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [7/8]
++[INFO]   from SDC/pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] -----------------------< com.macro.mall:sdc-e4 >------------------------
++[INFO] Building SDC E4 1.0-SNAPSHOT                                       [8/8]
++[INFO]   from SDC/E4/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e4 ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/SDC/E4/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/SDC/E4/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e4 ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e4 ---
++[INFO] Copying 1 resource from src/test/resources to target/test-classes
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e4 ---
++[INFO] Recompiling the module because of changed source code.
++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e4 ---
++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
++[INFO] 
++[INFO] -------------------------------------------------------
++[INFO]  T E S T S
++[INFO] -------------------------------------------------------
++[INFO] Running com.macro.mall.sdc.e4.AdminCacheWiringTest
++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
++[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.95 s -- in com.macro.mall.sdc.e4.AdminCacheWiringTest
++[INFO] 
++[INFO] Results:
++[INFO] 
++[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
++[INFO] 
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.001 s]
++[INFO] mall-common ........................................ SUCCESS [  0.344 s]
++[INFO] mall-mbg ........................................... SUCCESS [  0.110 s]
++[INFO] mall-security ...................................... SUCCESS [  0.020 s]
++[INFO] mall-admin ......................................... SUCCESS [  0.088 s]
++[INFO] mall-portal ........................................ SUCCESS [  0.057 s]
++[INFO] SDC - software design and conventions .............. SUCCESS [  0.001 s]
++[INFO] SDC E4 ............................................. SUCCESS [ 11.846 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD SUCCESS
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  12.632 s
++[INFO] Finished at: 2026-11-02T12:28:01+08:00
++[INFO] ------------------------------------------------------------------------
+diff --git a/SDC/E4/answers/E4-08/before-mall-admin-build.log b/SDC/E4/answers/E4-08/before-mall-admin-build.log
+new file mode 100644
+index 00000000..f3240a89
+--- /dev/null
++++ b/SDC/E4/answers/E4-08/before-mall-admin-build.log
+@@ -0,0 +1,152 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-admin                                                         [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/5]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/5]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Recompiling the module because of changed source code.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] --- jar:3.4.2:jar (default-jar) @ mall-common ---
++[INFO] Building jar: /private/tmp/mall-e408-before/mall-common/target/mall-common-1.0-SNAPSHOT.jar
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/5]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 230 source files with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] --- jar:3.4.2:jar (default-jar) @ mall-mbg ---
++[INFO] Building jar: /private/tmp/mall-e408-before/mall-mbg/target/mall-mbg-1.0-SNAPSHOT.jar
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/5]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++[INFO] /private/tmp/mall-e408-before/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 某些输入文件使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e408-before/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] --- jar:3.4.2:jar (default-jar) @ mall-security ---
++[INFO] Building jar: /private/tmp/mall-e408-before/mall-security/target/mall-security-1.0-SNAPSHOT.jar
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-admin >----------------------
++[INFO] Building mall-admin 1.0-SNAPSHOT                                   [5/5]
++[INFO]   from mall-admin/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-admin ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 23 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-admin ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 153 source files with javac [debug parameters release 17] to target/classes
++[WARNING] /private/tmp/mall-e408-before/mall-admin/src/main/java/com/macro/mall/dto/PmsProductParam.java:[15,1] Generating equals/hashCode implementation but without a call to superclass, even though this class does not extend java.lang.Object. If this is intentional, add '@EqualsAndHashCode(callSuper=false)' to your type.
++[INFO] /private/tmp/mall-e408-before/mall-admin/src/main/java/com/macro/mall/config/MallSecurityConfig.java: 某些输入文件使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e408-before/mall-admin/src/main/java/com/macro/mall/config/MallSecurityConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] /private/tmp/mall-e408-before/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java: /private/tmp/mall-e408-before/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java使用了未经检查或不安全的操作。
++[INFO] /private/tmp/mall-e408-before/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-admin ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-admin/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-admin ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-admin ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] --- jar:3.4.2:jar (default-jar) @ mall-admin ---
++[INFO] Building jar: /private/tmp/mall-e408-before/mall-admin/target/mall-admin-1.0-SNAPSHOT.jar
++[INFO] 
++[INFO] --- spring-boot:3.5.14:repackage (repackage) @ mall-admin ---
++[INFO] Replacing main artifact /private/tmp/mall-e408-before/mall-admin/target/mall-admin-1.0-SNAPSHOT.jar with repackaged archive, adding nested dependencies in BOOT-INF/.
++[INFO] The original artifact has been renamed to /private/tmp/mall-e408-before/mall-admin/target/mall-admin-1.0-SNAPSHOT.jar.original
++[INFO] 
++[INFO] --- docker:0.45.1:build (build-image) @ mall-admin ---
++[ERROR] DOCKER> Cannot create docker access object  [Operation not permitted]
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.001 s]
++[INFO] mall-common ........................................ SUCCESS [  1.080 s]
++[INFO] mall-mbg ........................................... SUCCESS [  1.418 s]
++[INFO] mall-security ...................................... SUCCESS [  0.282 s]
++[INFO] mall-admin ......................................... FAILURE [  1.097 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD FAILURE
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  4.019 s
++[INFO] Finished at: 2026-11-02T10:18:13+08:00
++[INFO] ------------------------------------------------------------------------
++[ERROR] Failed to execute goal io.fabric8:docker-maven-plugin:0.45.1:build (build-image) on project mall-admin: Cannot create docker access object : Operation not permitted -> [Help 1]
++[ERROR] 
++[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
++[ERROR] Re-run Maven using the -X switch to enable full debug logging.
++[ERROR] 
++[ERROR] For more information about the errors and possible solutions, please read the following articles:
++[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoExecutionException
++[ERROR] 
++[ERROR] After correcting the problems, you can resume the build with the command
++[ERROR]   mvn <args> -rf :mall-admin
+diff --git a/SDC/E4/answers/E4-08/before-mall-admin-test.log b/SDC/E4/answers/E4-08/before-mall-admin-test.log
+new file mode 100644
+index 00000000..85784482
+--- /dev/null
++++ b/SDC/E4/answers/E4-08/before-mall-admin-test.log
+@@ -0,0 +1,112 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-admin                                                         [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/5]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/5]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/5]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/5]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-admin >----------------------
++[INFO] Building mall-admin 1.0-SNAPSHOT                                   [5/5]
++[INFO]   from mall-admin/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-admin ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 23 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-admin ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-admin ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e408-before/mall-admin/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-admin ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-admin ---
++[INFO] Tests are skipped.
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.000 s]
++[INFO] mall-common ........................................ SUCCESS [  0.275 s]
++[INFO] mall-mbg ........................................... SUCCESS [  0.080 s]
++[INFO] mall-security ...................................... SUCCESS [  0.019 s]
++[INFO] mall-admin ......................................... SUCCESS [  0.069 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD SUCCESS
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  0.581 s
++[INFO] Finished at: 2026-11-02T10:31:45+08:00
++[INFO] ------------------------------------------------------------------------
+diff --git a/SDC/E4/pom.xml b/SDC/E4/pom.xml
+index 865bae29..0f6f7924 100644
+--- a/SDC/E4/pom.xml
++++ b/SDC/E4/pom.xml
+@@ -3,5 +3,8 @@
+   <modelVersion>4.0.0</modelVersion>
+   <parent><groupId>com.macro.mall</groupId><artifactId>sdc</artifactId><version>1.0-SNAPSHOT</version></parent>
+   <artifactId>sdc-e4</artifactId><name>SDC E4</name>
+-  <dependencies><dependency><groupId>com.macro.mall</groupId><artifactId>mall-portal</artifactId><version>${project.version}</version><scope>test</scope></dependency></dependencies>
++  <dependencies>
++    <dependency><groupId>com.macro.mall</groupId><artifactId>mall-portal</artifactId><version>${project.version}</version><scope>test</scope></dependency>
++    <dependency><groupId>com.macro.mall</groupId><artifactId>mall-admin</artifactId><version>${project.version}</version><scope>test</scope></dependency>
++  </dependencies>
+ </project>
+diff --git a/SDC/E4/src/test/java/com/macro/mall/sdc/e4/AdminCacheWiringTest.java b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/AdminCacheWiringTest.java
+new file mode 100644
+index 00000000..739d483c
+--- /dev/null
++++ b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/AdminCacheWiringTest.java
+@@ -0,0 +1,165 @@
++package com.macro.mall.sdc.e4;
++
++import com.macro.mall.common.service.RedisService;
++import com.macro.mall.dao.UmsAdminRoleRelationDao;
++import com.macro.mall.dto.UpdateAdminPasswordParam;
++import com.macro.mall.mapper.UmsAdminLoginLogMapper;
++import com.macro.mall.mapper.UmsAdminMapper;
++import com.macro.mall.mapper.UmsAdminRoleRelationMapper;
++import com.macro.mall.model.UmsAdmin;
++import com.macro.mall.security.util.JwtTokenUtil;
++import com.macro.mall.security.util.SpringUtil;
++import com.macro.mall.service.UmsAdminCacheService;
++import com.macro.mall.service.UmsAdminService;
++import com.macro.mall.service.impl.UmsAdminCacheServiceImpl;
++import com.macro.mall.service.impl.UmsAdminServiceImpl;
++import org.junit.jupiter.api.Test;
++import org.springframework.context.annotation.AnnotationConfigApplicationContext;
++import org.springframework.context.ApplicationContext;
++import org.springframework.security.crypto.password.PasswordEncoder;
++import org.springframework.test.util.ReflectionTestUtils;
++import org.springframework.util.ReflectionUtils;
++import org.springframework.core.env.MapPropertySource;
++import org.mockito.InOrder;
++
++import java.util.Map;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertNotNull;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.*;
++
++class AdminCacheWiringTest {
++    @Test
++    void adminMutationsKeepTheirCacheInvalidationCalls() throws Exception {
++        UmsAdminCacheService cache = mock(UmsAdminCacheService.class);
++        UmsAdminMapper mapper = mock(UmsAdminMapper.class);
++        PasswordEncoder encoder = mock(PasswordEncoder.class);
++        UmsAdminServiceImpl service;
++        if (ReflectionUtils.findField(UmsAdminServiceImpl.class, "cacheService") == null) {
++            ApplicationContext context = mock(ApplicationContext.class);
++            when(context.getBean(UmsAdminCacheService.class)).thenReturn(cache);
++            ReflectionTestUtils.setField(SpringUtil.class, "applicationContext", context);
++            service = UmsAdminServiceImpl.class.getConstructor().newInstance();
++        } else {
++            service = UmsAdminServiceImpl.class.getConstructor(UmsAdminCacheService.class).newInstance(cache);
++        }
++        ReflectionTestUtils.setField(service, "adminMapper", mapper);
++        ReflectionTestUtils.setField(service, "passwordEncoder", encoder);
++
++        UmsAdmin raw = new UmsAdmin();
++        raw.setId(7L);
++        raw.setPassword("encoded-old");
++        when(mapper.selectByPrimaryKey(7L)).thenReturn(raw);
++        UmsAdmin update = new UmsAdmin();
++        update.setPassword("encoded-old");
++        when(mapper.updateByPrimaryKeySelective(update)).thenReturn(1);
++        service.update(7L, update);
++        verify(cache).delAdmin(7L);
++
++        clearInvocations(cache, mapper);
++        service.delete(7L);
++        InOrder deletion = inOrder(mapper, cache);
++        deletion.verify(mapper).deleteByPrimaryKey(7L);
++        deletion.verify(cache).delAdmin(7L);
++        deletion.verify(cache).delResourceList(7L);
++
++        clearInvocations(cache, mapper);
++        UpdateAdminPasswordParam param = new UpdateAdminPasswordParam();
++        param.setUsername("ada");
++        param.setOldPassword("old");
++        param.setNewPassword("new");
++        UmsAdmin passwordAdmin = new UmsAdmin();
++        passwordAdmin.setId(7L);
++        passwordAdmin.setPassword("encoded-old");
++        when(mapper.selectByExample(any())).thenReturn(java.util.List.of(passwordAdmin));
++        when(encoder.matches("old", "encoded-old")).thenReturn(true);
++        when(encoder.encode("new")).thenReturn("encoded-new");
++        assertEquals(1, service.updatePassword(param));
++        verify(cache).delAdmin(7L);
++    }
++
++    @Test
++    void cacheDeleteUsesMapperUsernameAndSkipsRedisWhenAdminIsMissing() {
++        UmsAdminMapper mapper = mock(UmsAdminMapper.class);
++        RedisService redis = mock(RedisService.class);
++        UmsAdminCacheServiceImpl cache = new UmsAdminCacheServiceImpl();
++        if (ReflectionUtils.findField(UmsAdminCacheServiceImpl.class, "adminMapper") == null) {
++            UmsAdminService adminService = mock(UmsAdminService.class);
++            when(adminService.getItem(any())).thenAnswer(invocation -> mapper.selectByPrimaryKey(invocation.getArgument(0)));
++            ReflectionTestUtils.setField(cache, "adminService", adminService);
++        } else {
++            ReflectionTestUtils.setField(cache, "adminMapper", mapper);
++        }
++        ReflectionTestUtils.setField(cache, "redisService", redis);
++        ReflectionTestUtils.setField(cache, "REDIS_DATABASE", "mall");
++        ReflectionTestUtils.setField(cache, "REDIS_KEY_ADMIN", "admin");
++
++        UmsAdmin admin = new UmsAdmin();
++        admin.setUsername("ada");
++        when(mapper.selectByPrimaryKey(7L)).thenReturn(admin).thenReturn(null);
++        cache.delAdmin(7L);
++        cache.delAdmin(7L);
++        verify(redis).del("mall:admin:ada");
++        verify(redis, times(1)).del(any(String.class));
++    }
++
++    @Test
++    void deletionQueriesAfterDeleteAndOnlyEvictsResourcesWhenRecordIsGone() throws Exception {
++        UmsAdminMapper mapper = mock(UmsAdminMapper.class);
++        RedisService redis = mock(RedisService.class);
++        UmsAdminCacheServiceImpl cache = new UmsAdminCacheServiceImpl();
++        UmsAdminServiceImpl service;
++        if (ReflectionUtils.findField(UmsAdminServiceImpl.class, "cacheService") == null) {
++            ApplicationContext context = mock(ApplicationContext.class);
++            when(context.getBean(UmsAdminCacheService.class)).thenReturn(cache);
++            ReflectionTestUtils.setField(SpringUtil.class, "applicationContext", context);
++            service = UmsAdminServiceImpl.class.getConstructor().newInstance();
++            ReflectionTestUtils.setField(cache, "adminService", service);
++        } else {
++            service = UmsAdminServiceImpl.class.getConstructor(UmsAdminCacheService.class).newInstance(cache);
++            ReflectionTestUtils.setField(cache, "adminMapper", mapper);
++        }
++        ReflectionTestUtils.setField(service, "adminMapper", mapper);
++        ReflectionTestUtils.setField(cache, "redisService", redis);
++        ReflectionTestUtils.setField(cache, "REDIS_DATABASE", "mall");
++        ReflectionTestUtils.setField(cache, "REDIS_KEY_ADMIN", "admin");
++        ReflectionTestUtils.setField(cache, "REDIS_KEY_RESOURCE_LIST", "resourceList");
++        when(mapper.deleteByPrimaryKey(7L)).thenReturn(1);
++
++        assertEquals(1, service.delete(7L));
++
++        InOrder calls = inOrder(mapper, redis);
++        calls.verify(mapper).deleteByPrimaryKey(7L);
++        calls.verify(mapper).selectByPrimaryKey(7L);
++        calls.verify(redis).del("mall:resourceList:7");
++        verify(redis, never()).del("mall:admin:ada");
++        verifyNoMoreInteractions(redis);
++    }
++
++    @Test
++    void adminAndCacheServicesAssembleInSpringWithoutAnApplicationCycle() {
++        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
++            context.registerBean(UmsAdminMapper.class, () -> mock(UmsAdminMapper.class));
++            context.registerBean(UmsAdminRoleRelationMapper.class, () -> mock(UmsAdminRoleRelationMapper.class));
++            context.registerBean(UmsAdminRoleRelationDao.class, () -> mock(UmsAdminRoleRelationDao.class));
++            context.registerBean(UmsAdminLoginLogMapper.class, () -> mock(UmsAdminLoginLogMapper.class));
++            context.registerBean(RedisService.class, () -> mock(RedisService.class));
++            context.registerBean(JwtTokenUtil.class, () -> mock(JwtTokenUtil.class));
++            context.registerBean(PasswordEncoder.class, () -> mock(PasswordEncoder.class));
++            context.getEnvironment().getPropertySources().addFirst(new MapPropertySource("test", Map.of(
++                    "redis.database", "mall",
++                    "redis.expire.common", "100",
++                    "redis.key.admin", "admin",
++                    "redis.key.resourceList", "resourceList",
++                    "jwt.secret", "test-secret",
++                    "jwt.expiration", "3600",
++                    "jwt.tokenHead", "Bearer")));
++            context.registerBean(UmsAdminCacheServiceImpl.class);
++            context.registerBean(UmsAdminServiceImpl.class);
++            context.refresh();
++            assertNotNull(context.getBean(UmsAdminServiceImpl.class));
++            assertNotNull(context.getBean(UmsAdminCacheServiceImpl.class));
++        }
++    }
++}
+diff --git a/mall-admin/src/main/java/com/macro/mall/service/UmsAdminService.java b/mall-admin/src/main/java/com/macro/mall/service/UmsAdminService.java
+index f4653765..0841e9de 100644
+--- a/mall-admin/src/main/java/com/macro/mall/service/UmsAdminService.java
++++ b/mall-admin/src/main/java/com/macro/mall/service/UmsAdminService.java
+@@ -85,11 +85,6 @@ public interface UmsAdminService {
+      */
+     UserDetails loadUserByUsername(String username);
+ 
+-    /**
+-     * 获取缓存服务
+-     */
+-    UmsAdminCacheService getCacheService();
+-
+     /**
+      * 登出功能
+      * @param username 用户名
+diff --git a/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java b/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java
+index c969878b..6d820cf1 100644
+--- a/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java
++++ b/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java
+@@ -3,13 +3,13 @@ package com.macro.mall.service.impl;
+ import cn.hutool.core.collection.CollUtil;
+ import com.macro.mall.common.service.RedisService;
+ import com.macro.mall.dao.UmsAdminRoleRelationDao;
++import com.macro.mall.mapper.UmsAdminMapper;
+ import com.macro.mall.mapper.UmsAdminRoleRelationMapper;
+ import com.macro.mall.model.UmsAdmin;
+ import com.macro.mall.model.UmsAdminRoleRelation;
+ import com.macro.mall.model.UmsAdminRoleRelationExample;
+ import com.macro.mall.model.UmsResource;
+ import com.macro.mall.service.UmsAdminCacheService;
+-import com.macro.mall.service.UmsAdminService;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.beans.factory.annotation.Value;
+ import org.springframework.stereotype.Service;
+@@ -24,7 +24,7 @@ import java.util.stream.Collectors;
+ @Service
+ public class UmsAdminCacheServiceImpl implements UmsAdminCacheService {
+     @Autowired
+-    private UmsAdminService adminService;
++    private UmsAdminMapper adminMapper;
+     @Autowired
+     private RedisService redisService;
+     @Autowired
+@@ -42,7 +42,7 @@ public class UmsAdminCacheServiceImpl implements UmsAdminCacheService {
+ 
+     @Override
+     public void delAdmin(Long adminId) {
+-        UmsAdmin admin = adminService.getItem(adminId);
++        UmsAdmin admin = adminMapper.selectByPrimaryKey(adminId);
+         if (admin != null) {
+             String key = REDIS_DATABASE + ":" + REDIS_KEY_ADMIN + ":" + admin.getUsername();
+             redisService.del(key);
+diff --git a/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminServiceImpl.java b/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminServiceImpl.java
+index 282cbb56..6a1e2403 100644
+--- a/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminServiceImpl.java
++++ b/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminServiceImpl.java
+@@ -14,7 +14,6 @@ import com.macro.mall.mapper.UmsAdminMapper;
+ import com.macro.mall.mapper.UmsAdminRoleRelationMapper;
+ import com.macro.mall.model.*;
+ import com.macro.mall.security.util.JwtTokenUtil;
+-import com.macro.mall.security.util.SpringUtil;
+ import com.macro.mall.service.UmsAdminCacheService;
+ import com.macro.mall.service.UmsAdminService;
+ import org.slf4j.Logger;
+@@ -44,6 +43,7 @@ import java.util.List;
+ @Service
+ public class UmsAdminServiceImpl implements UmsAdminService {
+     private static final Logger LOGGER = LoggerFactory.getLogger(UmsAdminServiceImpl.class);
++    private final UmsAdminCacheService cacheService;
+     @Autowired
+     private JwtTokenUtil jwtTokenUtil;
+     @Autowired
+@@ -57,10 +57,15 @@ public class UmsAdminServiceImpl implements UmsAdminService {
+     @Autowired
+     private UmsAdminLoginLogMapper loginLogMapper;
+ 
++    @Autowired
++    public UmsAdminServiceImpl(UmsAdminCacheService cacheService) {
++        this.cacheService = cacheService;
++    }
++
+     @Override
+     public UmsAdmin getAdminByUsername(String username) {
+         //先从缓存中获取数据
+-        UmsAdmin admin = getCacheService().getAdmin(username);
++        UmsAdmin admin = cacheService.getAdmin(username);
+         if (admin != null) return admin;
+         //缓存中没有从数据库中获取
+         UmsAdminExample example = new UmsAdminExample();
+@@ -69,7 +74,7 @@ public class UmsAdminServiceImpl implements UmsAdminService {
+         if (adminList != null && adminList.size() > 0) {
+             admin = adminList.get(0);
+             //将数据库中的数据存入缓存中
+-            getCacheService().setAdmin(admin);
++            cacheService.setAdmin(admin);
+             return admin;
+         }
+         return null;
+@@ -183,15 +188,15 @@ public class UmsAdminServiceImpl implements UmsAdminService {
+             }
+         }
+         int count = adminMapper.updateByPrimaryKeySelective(admin);
+-        getCacheService().delAdmin(id);
++        cacheService.delAdmin(id);
+         return count;
+     }
+ 
+     @Override
+     public int delete(Long id) {
+         int count = adminMapper.deleteByPrimaryKey(id);
+-        getCacheService().delAdmin(id);
+-        getCacheService().delResourceList(id);
++        cacheService.delAdmin(id);
++        cacheService.delResourceList(id);
+         return count;
+     }
+ 
+@@ -213,7 +218,7 @@ public class UmsAdminServiceImpl implements UmsAdminService {
+             }
+             adminRoleRelationDao.insertList(list);
+         }
+-        getCacheService().delResourceList(adminId);
++        cacheService.delResourceList(adminId);
+         return count;
+     }
+ 
+@@ -225,7 +230,7 @@ public class UmsAdminServiceImpl implements UmsAdminService {
+     @Override
+     public List<UmsResource> getResourceList(Long adminId) {
+         //先从缓存中获取数据
+-        List<UmsResource> resourceList = getCacheService().getResourceList(adminId);
++        List<UmsResource> resourceList = cacheService.getResourceList(adminId);
+         if(CollUtil.isNotEmpty(resourceList)){
+             return  resourceList;
+         }
+@@ -233,7 +238,7 @@ public class UmsAdminServiceImpl implements UmsAdminService {
+         resourceList = adminRoleRelationDao.getResourceList(adminId);
+         if(CollUtil.isNotEmpty(resourceList)){
+             //将数据库中的数据存入缓存中
+-            getCacheService().setResourceList(adminId,resourceList);
++            cacheService.setResourceList(adminId,resourceList);
+         }
+         return resourceList;
+     }
+@@ -257,7 +262,7 @@ public class UmsAdminServiceImpl implements UmsAdminService {
+         }
+         umsAdmin.setPassword(passwordEncoder.encode(param.getNewPassword()));
+         adminMapper.updateByPrimaryKey(umsAdmin);
+-        getCacheService().delAdmin(umsAdmin.getId());
++        cacheService.delAdmin(umsAdmin.getId());
+         return 1;
+     }
+ 
+@@ -272,16 +277,11 @@ public class UmsAdminServiceImpl implements UmsAdminService {
+         throw new UsernameNotFoundException("用户名或密码错误");
+     }
+ 
+-    @Override
+-    public UmsAdminCacheService getCacheService() {
+-        return SpringUtil.getBean(UmsAdminCacheService.class);
+-    }
+-
+     @Override
+     public void logout(String username) {
+         //清空缓存中的用户相关数据
+-        UmsAdmin admin = getCacheService().getAdmin(username);
+-        getCacheService().delAdmin(admin.getId());
+-        getCacheService().delResourceList(admin.getId());
++        UmsAdmin admin = cacheService.getAdmin(username);
++        cacheService.delAdmin(admin.getId());
++        cacheService.delResourceList(admin.getId());
+     }
+ }

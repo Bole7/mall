@@ -1,0 +1,190 @@
+diff --git a/SDC/E1/answers/E1-02/ISSUE.md b/SDC/E1/answers/E1-02/ISSUE.md
+new file mode 100644
+index 0000000..a430a92
+--- /dev/null
++++ b/SDC/E1/answers/E1-02/ISSUE.md
+@@ -0,0 +1,35 @@
++# E1-02 会员收货地址
++
++## 目标
++
++基于会员收货地址服务，解释当前会员身份来源、请求字段与服务端查询条件的区别，并追踪默认地址更新的两步顺序及生成代码边界。
++
++## 验收标准
++
++- 画出一条读取路径和一条更新路径。
++- 标出会员过滤条件如何由当前登录会员生成。
++- 说明设为默认地址时先清除当前会员旧默认地址，再更新目标地址。
++- 区分 portal 业务逻辑与 MyBatis Generator 生成的 Mapper、Example、XML。
++- 提供实际服务调用的 Mockito 观察测试；明确其不证明数据库事务或真实 SQL 行为。
++
++## 学习材料
++
++`SDC/E1/answers/E1-02/README.md` 与 `UmsMemberReceiveAddressObservationTest`。
++
++## 状态
++
++已发布学习参考答案，验证范围见下文。
++
++
++## 已发布学习参考答案
++
++- [答案说明、源码依据和验证记录](https://github.com/meng004/mall/tree/exp/e1-02/SDC/E1/answers/E1-02)
++- [独立参考分支](https://github.com/meng004/mall/tree/exp/e1-02)
++- 基线：`7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`；不创建PR，不合入mall主线。
++- JDK 26 定向验证：1项通过，0失败/错误/跳过。仅证明源码和Mock调用，不证明真实DB/事务/HTTP链路。
++
++```sh
++git clone --branch exp/e1-02 --single-branch https://github.com/meng004/mall.git mall-e1-02
++cd mall-e1-02
++mvn -pl mall-portal -am -Dtest=UmsMemberReceiveAddressObservationTest -Dsurefire.failIfNoSpecifiedTests=false -DskipTests=false -Dmaven.compiler.proc=full test
++```
+diff --git a/SDC/E1/answers/E1-02/README.md b/SDC/E1/answers/E1-02/README.md
+new file mode 100644
+index 0000000..a5d634c
+--- /dev/null
++++ b/SDC/E1/answers/E1-02/README.md
+@@ -0,0 +1,44 @@
++# E1-02 会员收货地址
++
++范围：基线源码的读取路径与默认地址更新路径观察。生产代码未修改。
++
++## 路径
++
++```text
++读取：Controller GET /member/address/list 或 GET /member/address/{id}
++  -> UmsMemberReceiveAddressServiceImpl.list/getItem
++  -> UmsMemberService.getCurrentMember() 得到身份
++  -> Example 条件 member_id = 当前会员；详情再加 id = 请求路径参数
++  -> Mapper selectByExample -> ums_member_receive_address
++
++写入：Controller POST /member/address/update/{id}
++  -> Service.update(id, 请求体)
++  -> 先清除：UPDATE 默认标记为 0，WHERE member_id = 当前会员 AND default_status = 1
++  -> 再设置：更新请求地址，WHERE member_id = 当前会员 AND id = 路径 id
++  -> Mapper updateByExampleSelective -> ums_member_receive_address
++```
++
++会员身份来自认证上下文服务，不由请求体提供；请求体承载地址字段，路径参数提供目标地址 id。查询/更新条件由服务端组装，会员过滤发生在 Example 创建处。
++
++当请求 `defaultStatus=1` 时，服务先清当前会员的旧默认地址，再更新指定地址。请求未提供默认状态时服务补为 0。接口声明了 `@Transactional`，但本观察测试只验证服务调用 mapper 的条件、字段与顺序；Mockito 不验证 Spring 事务代理、数据库原子性或真实 SQL 行为。
++
++## 生成代码边界
++
++`UmsMemberReceiveAddressMapper`、`UmsMemberReceiveAddressExample` 和对应 mapper XML 属于 MyBatis Generator 产物；业务身份获取、条件组装、默认状态处理和调用顺序位于 portal Service。生成模型/Example 用于表达持久层结构，不应把业务授权规则误读成模型自身保证。
++
++## 证据
++
++- `UmsMemberReceiveAddressObservationTest` 实际调用 Service，验证 list 的会员条件、默认地址两次 mapper 调用的先后、更新字段及目标会员/id 条件。
++- 新鲜测试运行命令和计数记录在 `run.log`。
++- 测试使用仓库已有的 `mock-maker-subclass` Mockito 模式，避免 JDK 26 inline mock maker 自附加限制。
++- 证据不覆盖其他 CRUD 方法、认证链、事务代理、MyBatis SQL 执行或数据库并发。
++
++## 可复现参考答案
++
++基线 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`；独立分支 `exp/e1-02`。
++
++```sh
++mvn -pl mall-portal -am -Dtest=UmsMemberReceiveAddressObservationTest -Dsurefire.failIfNoSpecifiedTests=false -DskipTests=false -Dmaven.compiler.proc=full test
++```
++
++本轮 JDK 26 定向测试 1 项通过，0失败、0错误、0跳过。首次运行需要联网下载依赖；无须运行依赖数据库的全部测试。
+diff --git a/SDC/E1/answers/E1-02/run.log b/SDC/E1/answers/E1-02/run.log
+new file mode 100644
+index 0000000..1f9f772
+--- /dev/null
++++ b/SDC/E1/answers/E1-02/run.log
+@@ -0,0 +1,17 @@
++Base: 7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8
++Checkout: /private/tmp/mall-e1-02 (detached)
++Runtime checked: /opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home, OpenJDK 26.0.1; JDK 8 is also installed but project source/target is 17.
++
++Attempt 1:
++JAVA_HOME=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home rtk mvn -o -pl mall-portal -am -Dtest=UmsMemberReceiveAddressObservationTest -DfailIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false test
++Result: BUILD FAILURE at mall-common compile, before tests. Lombok-generated WebLog accessors (for example setDescription/getUrl) were not produced; 0 tests executed.
++
++Attempt 2:
++JAVA_HOME=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home rtk mvn -o -pl mall-portal -am -Dlombok.version=1.18.46 -Dtest=UmsMemberReceiveAddressObservationTest -DfailIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false test
++Result: same mall-common compile failure; 0 tests executed.
++
++Attempt 3 (fresh successful run):
++rtk proxy env JAVA_HOME=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home mvn -Dmaven.compiler.proc=full -DskipTests=false -pl mall-portal -am -Dtest=UmsMemberReceiveAddressObservationTest -Dsurefire.failIfNoSpecifiedTests=false test
++Result: BUILD SUCCESS; mall-portal: Tests run: 1, Failures: 0, Errors: 0, Skipped: 0. Explicit `-Dmaven.compiler.proc=full` enabled Lombok annotation processing. The test resource selects the repository's existing `mock-maker-subclass` mode because JDK 26 cannot self-attach Mockito's inline mock maker.
++
++Scope remains Mockito service observation only: no Spring application context, real database transaction, HTTP request, rollback, or SQL execution is verified.
+diff --git a/mall-portal/src/test/java/com/macro/mall/portal/UmsMemberReceiveAddressObservationTest.java b/mall-portal/src/test/java/com/macro/mall/portal/UmsMemberReceiveAddressObservationTest.java
+new file mode 100644
+index 0000000..dbc8667
+--- /dev/null
++++ b/mall-portal/src/test/java/com/macro/mall/portal/UmsMemberReceiveAddressObservationTest.java
+@@ -0,0 +1,63 @@
++package com.macro.mall.portal;
++
++import com.macro.mall.mapper.UmsMemberReceiveAddressMapper;
++import com.macro.mall.model.UmsMember;
++import com.macro.mall.model.UmsMemberReceiveAddress;
++import com.macro.mall.model.UmsMemberReceiveAddressExample;
++import com.macro.mall.portal.service.UmsMemberService;
++import com.macro.mall.portal.service.impl.UmsMemberReceiveAddressServiceImpl;
++import org.junit.jupiter.api.Test;
++import org.mockito.InOrder;
++import org.mockito.ArgumentCaptor;
++import org.springframework.test.util.ReflectionTestUtils;
++
++import static org.junit.jupiter.api.Assertions.*;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.*;
++
++class UmsMemberReceiveAddressObservationTest {
++    private final UmsMemberService memberService = mock(UmsMemberService.class, withSettings().mockMaker("mock-maker-subclass"));
++    private final UmsMemberReceiveAddressMapper mapper = mock(UmsMemberReceiveAddressMapper.class, withSettings().mockMaker("mock-maker-subclass"));
++    private final UmsMemberReceiveAddressServiceImpl service = new UmsMemberReceiveAddressServiceImpl();
++
++    UmsMemberReceiveAddressObservationTest() {
++        ReflectionTestUtils.setField(service, "memberService", memberService);
++        ReflectionTestUtils.setField(service, "addressMapper", mapper);
++        UmsMember member = new UmsMember();
++        member.setId(73L);
++        when(memberService.getCurrentMember()).thenReturn(member);
++    }
++
++    @Test
++    void readsAreScopedToCurrentMemberAndDefaultUpdateClearsThenSets() {
++        service.list();
++        verify(mapper).selectByExample(argThat(query -> has(query, "member_id =", 73L)));
++
++        clearInvocations(mapper);
++        UmsMemberReceiveAddress request = new UmsMemberReceiveAddress();
++        request.setDefaultStatus(1);
++        request.setName("Ada");
++        when(mapper.updateByExampleSelective(any(), any())).thenReturn(1);
++
++        assertEquals(1, service.update(91L, request));
++
++        ArgumentCaptor<UmsMemberReceiveAddress> rows = ArgumentCaptor.forClass(UmsMemberReceiveAddress.class);
++        ArgumentCaptor<UmsMemberReceiveAddressExample> queries = ArgumentCaptor.forClass(UmsMemberReceiveAddressExample.class);
++        InOrder order = inOrder(mapper);
++        order.verify(mapper, times(2)).updateByExampleSelective(rows.capture(), queries.capture());
++
++        assertEquals(0, rows.getAllValues().get(0).getDefaultStatus());
++        assertTrue(has(queries.getAllValues().get(0), "member_id =", 73L));
++        assertTrue(has(queries.getAllValues().get(0), "default_status =", 1));
++        assertEquals(1, rows.getAllValues().get(1).getDefaultStatus());
++        assertEquals("Ada", rows.getAllValues().get(1).getName());
++        assertTrue(has(queries.getAllValues().get(1), "member_id =", 73L));
++        assertTrue(has(queries.getAllValues().get(1), "id =", 91L));
++    }
++
++    private static boolean has(UmsMemberReceiveAddressExample example, String condition, Object value) {
++        return example.getOredCriteria().stream()
++                .flatMap(criteria -> criteria.getAllCriteria().stream())
++                .anyMatch(criterion -> condition.equals(criterion.getCondition()) && value.equals(criterion.getValue()));
++    }
++}
+diff --git a/mall-portal/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker b/mall-portal/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker
+new file mode 100644
+index 0000000..fdbd0b1
+--- /dev/null
++++ b/mall-portal/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker
+@@ -0,0 +1 @@
++mock-maker-subclass

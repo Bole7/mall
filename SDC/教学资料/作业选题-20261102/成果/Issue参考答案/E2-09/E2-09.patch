@@ -1,0 +1,613 @@
+diff --git a/SDC/E2/answers/E2-09/ISSUE.md b/SDC/E2/answers/E2-09/ISSUE.md
+new file mode 100644
+index 0000000..012ad97
+--- /dev/null
++++ b/SDC/E2/answers/E2-09/ISSUE.md
+@@ -0,0 +1,34 @@
++## 靶点
++问题：后台与搜索是两个部署单元，中间没有任何接缝。
++- `mall-admin` 与 `mall-portal` 中 0 处引用搜索模块；
++- 下架 `PmsProductServiceImpl.updatePublishStatus`（256–262 行）只改 MySQL；
++- 品牌改名 `PmsBrandServiceImpl.java` 55–60 行、分类改名 `PmsProductCategoryServiceImpl.java` 75–80 行只改商品表里的冗余名；
++- 搜索只有手动入口：`EsProductController` 的导入、按 id 创建、删除、批量删除。
++
++原则：架构层面的一致性与依赖方向；ADR（一致性等级、由谁触发同步、被否决方案）；依赖倒置：admin 定义“商品变更”端口，不直接依赖搜索模块。
++
++## 验收准则
++- ADR 一份，并入一页说明
++- 下架一个写入点经端口发布一次变更；测试用内存假实现断言，改前失败、改后通过
++- 说明其余写入点为何暂不接
++
++## 不可变约束
++- 不接入 ES 或消息中间件，不改搜索模块
++- 不改下架的现有数据库行为
++
++## 状态
++已发布独立学习参考实现（进阶），不创建 PR、不合入主线。历史题目标记 `baseline-dcaa93b3`；本答案实际起点为 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`。
++
++## 参考答案与复现
++
++[参考答案及测试日志](https://github.com/meng004/mall/tree/exp/e2-09/SDC/E2/answers/E2-09)；[参考分支](https://github.com/meng004/mall/tree/exp/e2-09)。
++
++```sh
++git clone --branch exp/e2-09 --single-branch https://github.com/meng004/mall.git mall-e2-09
++cd mall-e2-09
++mvn -pl SDC/E2 -am -DskipTests=false -Dtest=ProductUnlistingNotificationTest -Dsurefire.failIfNoSpecifiedTests=false test
++```
++
++JDK 17，5 项定向测试通过，失败/错误/跳过均为 0。成功写入且 publishStatus 为 0 时调用一次端口；零行、写入异常、非下架不通知；通知异常只记录告警，保持原写入返回值。端口收到完整请求 ID，可能包含不存在的 ID；适配器须容忍。内存教学适配器只记录最近一批，不累计历史数据。
++
++只验证真实服务与替身 Mapper/端口；没有接入 ES、消息中间件或真实数据库，不表示搜索索引已经同步，不保证跨系统原子性。SDC/E2 的 subclass MockMaker 配置影响本分支该模块 final/static 模拟能力，未验证全模块测试。
+diff --git a/SDC/E2/answers/E2-09/README.md b/SDC/E2/answers/E2-09/README.md
+new file mode 100644
+index 0000000..f488630
+--- /dev/null
++++ b/SDC/E2/answers/E2-09/README.md
+@@ -0,0 +1,27 @@
++# E2-09 商品下架通知参考答案
++
++## 规格与小 ADR
++
++下架写入点是 `PmsProductServiceImpl.updatePublishStatus`。当 mapper 更新返回行数大于 0 且 `publishStatus == 0` 时，服务通过 `PmsProductUnlistingPort` 通知请求中的商品 ID；上架、零行和写入异常均不通知。通知异常记录告警并吞掉，原更新行数仍返回，以遵守“不改下架现有数据库行为”；这不证明索引已同步。若批量请求中含未命中 ID，端口仍收到完整请求 ID 列表，适配器需容忍重复或不存在的 ID。
++
++一致性等级为“成功写入后的尽力通知，失败不影响原写入结果”：本方法没有声明式事务；通知失败只记日志，不能据此断言数据库回滚或已跨系统提交。本实现不声称跨系统原子性，也不连接 ES 或消息中间件。admin 只依赖端口，内存适配器用于教学验证，未来可替换为搜索适配器。
++
++否决方案：直接依赖 `mall-search` 会倒置部署边界；引入消息/通用事件框架超出单一写入点；通知失败后抛异常会改变现有写入结果，补偿回滚则错误宣称跨系统原子性。
++
++其他商品更新、品牌/分类冗余字段更新暂不接入，因为本案例只固定下架这一写入点。
++
++## 基线与失败/成功证据
++
++线上 Issue #46 的候选基线标记为 `baseline-dcaa93b3`；本次隔离参考实现 checkout 的实际源码提交为 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`。两者不是同一个基线。
++
++- 改前：`PmsProductServiceImpl.updatePublishStatus` 只调用 mapper，测试中的通知端口没有调用。
++- 改后：成功下架恰好通知一次；数据库异常、零行、非下架状态不通知；通知失败记告警但仍返回 mapper 更新行数。
++
++## 运行
++
++```text
++JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home \
++  mvn -pl SDC/E2 -am -DskipTests=false -Dtest=ProductUnlistingNotificationTest -Dsurefire.failIfNoSpecifiedTests=false test
++```
++
++教学内存适配器只保留最近一批 ID，不累计历史通知；本分支 SDC/E2 测试资源使用 subclass MockMaker，以避开本机 inline agent 自附加失败；这影响本模块 final/static 对象的模拟能力，本轮只验证本题定向测试。
+diff --git a/SDC/E2/answers/E2-09/review-test.log b/SDC/E2/answers/E2-09/review-test.log
+new file mode 100644
+index 0000000..65bd842
+--- /dev/null
++++ b/SDC/E2/answers/E2-09/review-test.log
+@@ -0,0 +1,293 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-admin                                                         [jar]
++[INFO] SDC - software design and conventions                              [pom]
++[INFO] SDC E1                                                             [jar]
++[INFO] SDC E2                                                             [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/8]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall ---
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/8]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall-common ---
++[INFO] Deleting /private/tmp/mall-e2-09/mall-common/target
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Recompiling the module because of changed source code.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-09/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/8]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall-mbg ---
++[INFO] Deleting /private/tmp/mall-e2-09/mall-mbg/target
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 230 source files with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-09/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/8]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall-security ---
++[INFO] Deleting /private/tmp/mall-e2-09/mall-security/target
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-09/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-09/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++[INFO] /private/tmp/mall-e2-09/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 某些输入文件使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e2-09/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-09/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-admin >----------------------
++[INFO] Building mall-admin 1.0-SNAPSHOT                                   [5/8]
++[INFO]   from mall-admin/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall-admin ---
++[INFO] Deleting /private/tmp/mall-e2-09/mall-admin/target
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-admin ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 23 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-admin ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 155 source files with javac [debug parameters release 17] to target/classes
++[WARNING] /private/tmp/mall-e2-09/mall-admin/src/main/java/com/macro/mall/dto/PmsProductParam.java:[15,1] Generating equals/hashCode implementation but without a call to superclass, even though this class does not extend java.lang.Object. If this is intentional, add '@EqualsAndHashCode(callSuper=false)' to your type.
++[INFO] /private/tmp/mall-e2-09/mall-admin/src/main/java/com/macro/mall/config/MallSecurityConfig.java: 某些输入文件使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e2-09/mall-admin/src/main/java/com/macro/mall/config/MallSecurityConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] /private/tmp/mall-e2-09/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java: /private/tmp/mall-e2-09/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java使用了未经检查或不安全的操作。
++[INFO] /private/tmp/mall-e2-09/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-admin ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-09/mall-admin/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-admin ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-admin ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [6/8]
++[INFO]   from SDC/pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ sdc ---
++[INFO] 
++[INFO] -----------------------< com.macro.mall:sdc-e1 >------------------------
++[INFO] Building SDC E1 1.0-SNAPSHOT                                       [7/8]
++[INFO]   from SDC/E1/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ sdc-e1 ---
++[INFO] Deleting /private/tmp/mall-e2-09/SDC/E1/target
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e1 ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-09/SDC/E1/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-09/SDC/E1/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e1 ---
++[INFO] Recompiling the module because of changed source code.
++[INFO] Compiling 1 source file with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e1 ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-09/SDC/E1/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e1 ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 1 source file with javac [debug parameters release 17] to target/test-classes
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e1 ---
++[INFO] 
++[INFO] -----------------------< com.macro.mall:sdc-e2 >------------------------
++[INFO] Building SDC E2 1.0-SNAPSHOT                                       [8/8]
++[INFO]   from SDC/E2/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ sdc-e2 ---
++[INFO] Deleting /private/tmp/mall-e2-09/SDC/E2/target
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e2 ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-09/SDC/E2/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-09/SDC/E2/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e2 ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 1 source file with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e2 ---
++[INFO] Copying 1 resource from src/test/resources to target/test-classes
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e2 ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e2 ---
++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
++[INFO] 
++[INFO] -------------------------------------------------------
++[INFO]  T E S T S
++[INFO] -------------------------------------------------------
++[INFO] Running com.macro.mall.sdc.e2.ProductUnlistingNotificationTest
++12:29:26.060 [main] WARN com.macro.mall.service.impl.PmsProductServiceImpl -- 商品下架变更通知失败，productIds=[7]
++java.lang.IllegalStateException: fake notification failure
++	at com.macro.mall.service.impl.PmsProductServiceImpl.updatePublishStatus(PmsProductServiceImpl.java:267)
++	at com.macro.mall.sdc.e2.ProductUnlistingNotificationTest.notificationFailureDoesNotChangeDatabaseWriteResult(ProductUnlistingNotificationTest.java:55)
++	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
++	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
++	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
++	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
++	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:775)
++	at org.junit.platform.commons.support.ReflectionSupport.invokeMethod(ReflectionSupport.java:479)
++	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60)
++	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131)
++	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:161)
++	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:152)
++	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:91)
++	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(InterceptingExecutableInvoker.java:112)
++	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.lambda$invoke$0(InterceptingExecutableInvoker.java:94)
++	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106)
++	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64)
++	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45)
++	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37)
++	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:93)
++	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:87)
++	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:216)
++	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
++	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:212)
++	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:137)
++	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:69)
++	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:156)
++	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
++	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:146)
++	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
++	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:144)
++	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
++	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:143)
++	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:100)
++	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
++	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
++	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:160)
++	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
++	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:146)
++	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
++	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:144)
++	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
++	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:143)
++	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:100)
++	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
++	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
++	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:160)
++	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
++	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:146)
++	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
++	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:144)
++	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
++	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:143)
++	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:100)
++	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35)
++	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57)
++	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54)
++	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:201)
++	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:170)
++	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:94)
++	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:59)
++	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:142)
++	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:58)
++	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:103)
++	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:85)
++	at org.junit.platform.launcher.core.DelegatingLauncher.execute(DelegatingLauncher.java:47)
++	at org.junit.platform.launcher.core.InterceptingLauncher.lambda$execute$1(InterceptingLauncher.java:39)
++	at org.junit.platform.launcher.core.ClasspathAlignmentCheckingLauncherInterceptor.intercept(ClasspathAlignmentCheckingLauncherInterceptor.java:25)
++	at org.junit.platform.launcher.core.InterceptingLauncher.execute(InterceptingLauncher.java:38)
++	at org.junit.platform.launcher.core.DelegatingLauncher.execute(DelegatingLauncher.java:47)
++	at org.apache.maven.surefire.junitplatform.LauncherAdapter.executeWithoutCancellationToken(LauncherAdapter.java:60)
++	at org.apache.maven.surefire.junitplatform.LauncherAdapter.execute(LauncherAdapter.java:52)
++	at org.apache.maven.surefire.junitplatform.JUnitPlatformProvider.execute(JUnitPlatformProvider.java:203)
++	at org.apache.maven.surefire.junitplatform.JUnitPlatformProvider.invokeAllTests(JUnitPlatformProvider.java:168)
++	at org.apache.maven.surefire.junitplatform.JUnitPlatformProvider.invoke(JUnitPlatformProvider.java:136)
++	at org.apache.maven.surefire.booter.ForkedBooter.runSuitesInProcess(ForkedBooter.java:385)
++	at org.apache.maven.surefire.booter.ForkedBooter.execute(ForkedBooter.java:162)
++	at org.apache.maven.surefire.booter.ForkedBooter.run(ForkedBooter.java:507)
++	at org.apache.maven.surefire.booter.ForkedBooter.main(ForkedBooter.java:495)
++[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.79 s -- in com.macro.mall.sdc.e2.ProductUnlistingNotificationTest
++[INFO] 
++[INFO] Results:
++[INFO] 
++[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0
++[INFO] 
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.039 s]
++[INFO] mall-common ........................................ SUCCESS [  1.147 s]
++[INFO] mall-mbg ........................................... SUCCESS [  1.749 s]
++[INFO] mall-security ...................................... SUCCESS [  0.339 s]
++[INFO] mall-admin ......................................... SUCCESS [  0.891 s]
++[INFO] SDC - software design and conventions .............. SUCCESS [  0.001 s]
++[INFO] SDC E1 ............................................. SUCCESS [  0.280 s]
++[INFO] SDC E2 ............................................. SUCCESS [ 11.428 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD SUCCESS
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  16.062 s
++[INFO] Finished at: 2026-11-02T12:29:26+08:00
++[INFO] ------------------------------------------------------------------------
+diff --git a/SDC/E2/pom.xml b/SDC/E2/pom.xml
+index 82dec7a..1e7ee54 100644
+--- a/SDC/E2/pom.xml
++++ b/SDC/E2/pom.xml
+@@ -3,5 +3,8 @@
+   <modelVersion>4.0.0</modelVersion>
+   <parent><groupId>com.macro.mall</groupId><artifactId>sdc</artifactId><version>1.0-SNAPSHOT</version></parent>
+   <artifactId>sdc-e2</artifactId><name>SDC E2</name>
+-  <dependencies><dependency><groupId>com.macro.mall</groupId><artifactId>sdc-e1</artifactId><version>${project.version}</version></dependency></dependencies>
++  <dependencies>
++    <dependency><groupId>com.macro.mall</groupId><artifactId>sdc-e1</artifactId><version>${project.version}</version></dependency>
++    <dependency><groupId>com.macro.mall</groupId><artifactId>mall-admin</artifactId><version>${project.version}</version></dependency>
++  </dependencies>
+ </project>
+diff --git a/SDC/E2/src/test/java/com/macro/mall/sdc/e2/ProductUnlistingNotificationTest.java b/SDC/E2/src/test/java/com/macro/mall/sdc/e2/ProductUnlistingNotificationTest.java
+new file mode 100644
+index 0000000..5a25d6d
+--- /dev/null
++++ b/SDC/E2/src/test/java/com/macro/mall/sdc/e2/ProductUnlistingNotificationTest.java
+@@ -0,0 +1,80 @@
++package com.macro.mall.sdc.e2;
++
++import com.macro.mall.mapper.PmsProductMapper;
++import com.macro.mall.service.PmsProductUnlistingPort;
++import com.macro.mall.service.impl.InMemoryPmsProductUnlistingAdapter;
++import com.macro.mall.service.impl.PmsProductServiceImpl;
++import org.junit.jupiter.api.Test;
++import org.springframework.test.util.ReflectionTestUtils;
++
++import java.util.List;
++
++import static org.junit.jupiter.api.Assertions.*;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.*;
++
++class ProductUnlistingNotificationTest {
++    @Test
++    void inMemoryAdapterKeepsAnInspectableSnapshot() {
++        InMemoryPmsProductUnlistingAdapter adapter = new InMemoryPmsProductUnlistingAdapter();
++        adapter.notifyUnlisted(List.of(7L, 8L));
++        assertEquals(List.of(7L, 8L), adapter.getNotifiedProductIds());
++        adapter.notifyUnlisted(List.of(9L));
++        assertEquals(List.of(9L), adapter.getNotifiedProductIds());
++    }
++
++    @Test
++    void unlistingAfterSuccessfulWriteNotifiesOnce() {
++        Fixture f = fixture(2);
++        assertEquals(2, f.service.updatePublishStatus(List.of(7L, 8L), 0));
++        verify(f.port).notifyUnlisted(List.of(7L, 8L));
++    }
++
++    @Test
++    void failedOrEmptyWriteDoesNotNotify() {
++        Fixture failed = fixtureWithMapperFailure();
++        assertThrows(RuntimeException.class, () -> failed.service.updatePublishStatus(List.of(7L), 0));
++        verifyNoInteractions(failed.port);
++
++        Fixture empty = fixture(0);
++        assertEquals(0, empty.service.updatePublishStatus(List.of(7L), 0));
++        verifyNoInteractions(empty.port);
++    }
++
++    @Test
++    void nonUnlistingStatusDoesNotNotify() {
++        Fixture f = fixture(1);
++        assertEquals(1, f.service.updatePublishStatus(List.of(7L), 1));
++        verifyNoInteractions(f.port);
++    }
++
++    @Test
++    void notificationFailureDoesNotChangeDatabaseWriteResult() {
++        Fixture f = fixture(1);
++        doThrow(new IllegalStateException("fake notification failure")).when(f.port).notifyUnlisted(List.of(7L));
++        assertEquals(1, f.service.updatePublishStatus(List.of(7L), 0));
++        verify(f.mapper).updateByExampleSelective(any(), any());
++    }
++
++    private Fixture fixture(int count) {
++        PmsProductMapper mapper = mock(PmsProductMapper.class);
++        when(mapper.updateByExampleSelective(any(), any())).thenReturn(count);
++        return fixture(mapper);
++    }
++
++    private Fixture fixtureWithMapperFailure() {
++        PmsProductMapper mapper = mock(PmsProductMapper.class);
++        when(mapper.updateByExampleSelective(any(), any())).thenThrow(new RuntimeException("database failure"));
++        return fixture(mapper);
++    }
++
++    private Fixture fixture(PmsProductMapper mapper) {
++        PmsProductServiceImpl service = new PmsProductServiceImpl();
++        PmsProductUnlistingPort port = mock(PmsProductUnlistingPort.class);
++        ReflectionTestUtils.setField(service, "productMapper", mapper);
++        ReflectionTestUtils.setField(service, "productUnlistingPort", port);
++        return new Fixture(service, mapper, port);
++    }
++
++    private record Fixture(PmsProductServiceImpl service, PmsProductMapper mapper, PmsProductUnlistingPort port) {}
++}
+diff --git a/SDC/E2/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker b/SDC/E2/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker
+new file mode 100644
+index 0000000..fdbd0b1
+--- /dev/null
++++ b/SDC/E2/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker
+@@ -0,0 +1 @@
++mock-maker-subclass
+diff --git a/mall-admin/src/main/java/com/macro/mall/service/PmsProductUnlistingPort.java b/mall-admin/src/main/java/com/macro/mall/service/PmsProductUnlistingPort.java
+new file mode 100644
+index 0000000..8c1d413
+--- /dev/null
++++ b/mall-admin/src/main/java/com/macro/mall/service/PmsProductUnlistingPort.java
+@@ -0,0 +1,8 @@
++package com.macro.mall.service;
++
++import java.util.List;
++
++/** 商品下架后的外部变更通知端口。 */
++public interface PmsProductUnlistingPort {
++    void notifyUnlisted(List<Long> productIds);
++}
+diff --git a/mall-admin/src/main/java/com/macro/mall/service/impl/InMemoryPmsProductUnlistingAdapter.java b/mall-admin/src/main/java/com/macro/mall/service/impl/InMemoryPmsProductUnlistingAdapter.java
+new file mode 100644
+index 0000000..fedc34d
+--- /dev/null
++++ b/mall-admin/src/main/java/com/macro/mall/service/impl/InMemoryPmsProductUnlistingAdapter.java
+@@ -0,0 +1,21 @@
++package com.macro.mall.service.impl;
++
++import com.macro.mall.service.PmsProductUnlistingPort;
++import org.springframework.stereotype.Service;
++
++import java.util.List;
++
++/** 教学用假实现；只记录最近批次；真实部署应替换为搜索同步适配器。 */
++@Service
++public class InMemoryPmsProductUnlistingAdapter implements PmsProductUnlistingPort {
++    private List<Long> notifiedProductIds = List.of();
++
++    @Override
++    public synchronized void notifyUnlisted(List<Long> productIds) {
++        notifiedProductIds = List.copyOf(productIds);
++    }
++
++    public synchronized List<Long> getNotifiedProductIds() {
++        return notifiedProductIds;
++    }
++}
+diff --git a/mall-admin/src/main/java/com/macro/mall/service/impl/PmsProductServiceImpl.java b/mall-admin/src/main/java/com/macro/mall/service/impl/PmsProductServiceImpl.java
+index 67bc9e0..4bc09d1 100644
+--- a/mall-admin/src/main/java/com/macro/mall/service/impl/PmsProductServiceImpl.java
++++ b/mall-admin/src/main/java/com/macro/mall/service/impl/PmsProductServiceImpl.java
+@@ -10,6 +10,7 @@ import com.macro.mall.dto.PmsProductResult;
+ import com.macro.mall.mapper.*;
+ import com.macro.mall.model.*;
+ import com.macro.mall.service.PmsProductService;
++import com.macro.mall.service.PmsProductUnlistingPort;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ import org.springframework.beans.factory.annotation.Autowired;
+@@ -64,6 +65,8 @@ public class PmsProductServiceImpl implements PmsProductService {
+     private PmsProductDao productDao;
+     @Autowired
+     private PmsProductVertifyRecordDao productVertifyRecordDao;
++    @Autowired
++    private PmsProductUnlistingPort productUnlistingPort;
+ 
+     @Override
+     public int create(PmsProductParam productParam) {
+@@ -258,7 +261,15 @@ public class PmsProductServiceImpl implements PmsProductService {
+         record.setPublishStatus(publishStatus);
+         PmsProductExample example = new PmsProductExample();
+         example.createCriteria().andIdIn(ids);
+-        return productMapper.updateByExampleSelective(record, example);
++        int count = productMapper.updateByExampleSelective(record, example);
++        if (count > 0 && Integer.valueOf(0).equals(publishStatus)) {
++            try {
++                productUnlistingPort.notifyUnlisted(ids);
++            } catch (RuntimeException e) {
++                LOGGER.warn("商品下架变更通知失败，productIds={}", ids, e);
++            }
++        }
++        return count;
+     }
+ 
+     @Override
+diff --git "a/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E2-09/ISSUE.md" "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E2-09/ISSUE.md"
+new file mode 100644
+index 0000000..04e2699
+--- /dev/null
++++ "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E2-09/ISSUE.md"
+@@ -0,0 +1,5 @@
++# Issue #46 更新草稿
++
++商品下架写入点现在通过 `PmsProductUnlistingPort` 发布一次内存通知，admin 不直接依赖搜索模块。实现只覆盖 `publishStatus == 0` 且 mapper 更新行数大于 0 的路径；通知异常记告警但不改变既有更新结果，数据库与外部系统之间仍不是原子事务。
++
++本答案以源码提交 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8` 为实现起点；Issue 标记基线为 `baseline-dcaa93b3`。本答案未接入 ES、消息中间件或其他商品写入点，内存适配器仅用于教学验证。
+diff --git "a/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E2-09/\346\224\271\345\211\215\346\227\245\345\277\227.md" "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E2-09/\346\224\271\345\211\215\346\227\245\345\277\227.md"
+new file mode 100644
+index 0000000..6d869b3
+--- /dev/null
++++ "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E2-09/\346\224\271\345\211\215\346\227\245\345\277\227.md"
+@@ -0,0 +1,13 @@
++# 改前
++
++基线 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8` 中，`updatePublishStatus` 只调用 `productMapper.updateByExampleSelective`，没有商品下架通知端口。
++
++证据：`mall-admin/src/main/java/com/macro/mall/service/impl/PmsProductServiceImpl.java:256-262`。
++
++在临时 clone 中先加入新增测试并保持原下架实现，使用 JDK 17 执行：
++
++```text
++rtk env JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home mvn -pl SDC/E2 -am -DskipTests=false -Dtest=ProductUnlistingNotificationTest -Dsurefire.failIfNoSpecifiedTests=false test
++```
++
++改前结果：`ProductUnlistingNotificationTest` 4 项中 2 项失败。成功下架期望通知但实际零交互；通知失败语义测试期望异常但原实现没有通知。其余 2 项通过，确认旧实现不会错误通知零行或上架操作。
+diff --git "a/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E2-09/\346\224\271\345\220\216\346\227\245\345\277\227.md" "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E2-09/\346\224\271\345\220\216\346\227\245\345\277\227.md"
+new file mode 100644
+index 0000000..d5c465e
+--- /dev/null
++++ "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E2-09/\346\224\271\345\220\216\346\227\245\345\277\227.md"
+@@ -0,0 +1,19 @@
++# 改后
++
++`updatePublishStatus` 在 mapper 返回正行数且 `publishStatus == 0` 时调用 `PmsProductUnlistingPort.notifyUnlisted` 一次；通知异常记告警并维持原返回行数。新增测试也验证内存适配器保存快照。
++
++使用 JDK 17 fresh 执行：
++
++```text
++rtk env JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home mvn -pl SDC/E2 -am -DskipTests=false -Dtest=ProductUnlistingNotificationTest -Dsurefire.failIfNoSpecifiedTests=false test
++```
++
++结果：BUILD SUCCESS；`ProductUnlistingNotificationTest` 5 项通过，0 失败。人为抛出的通知异常产生一条 WARN，但测试确认服务仍返回 mapper 的 `1`。
++
++随后运行 E2 全模块 fresh 验证：
++
++```text
++rtk env JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home mvn -pl SDC/E2 -am -DskipTests=false test
++```
++
++结果：BUILD SUCCESS；E1 3 项、E2 8 项通过，0 失败。

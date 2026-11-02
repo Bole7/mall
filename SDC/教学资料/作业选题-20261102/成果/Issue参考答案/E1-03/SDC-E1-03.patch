@@ -1,0 +1,516 @@
+diff --git a/SDC/E1/answers/E1-03/ISSUE.md b/SDC/E1/answers/E1-03/ISSUE.md
+new file mode 100644
+index 00000000..6887c150
+--- /dev/null
++++ b/SDC/E1/answers/E1-03/ISSUE.md
+@@ -0,0 +1,55 @@
++# E1-03 商品收藏
++
++## 标题
++
++导读商品收藏 add/list/detail：核对 sqlEnable 分支、会员隔离与商品快照来源
++
++## 目标
++
++阅读并核实 `mall-portal` 商品收藏链路，说明 MySQL 商品表与 Mongo 收藏文档各自承担的职责，并区分源码推断与 mock 测试能够证明的范围。
++
++## 范围
++
++- `MemberProductCollectionController` 的 `/add`、`/list`、`/detail`。
++- `MemberCollectionServiceImpl.add/list/detail`。
++- `PmsProductMapper.selectByPrimaryKey`、`MemberProductCollectionRepository` 的调用条件。
++- `mongo.insert.sqlEnable` 为 true/false 时的两条路径。
++
++不要求安装 MongoDB，不修改业务产品代码，不延伸 delete/clear、订单结算、搜索同步或并发唯一性。
++
++## 任务
++
++1. 画出两种 `sqlEnable` 配置下 add 的数据流。
++2. 说明当前会员信息从哪里来，并指出请求体中的 `memberId/memberNickname/memberIcon` 是否作为身份依据。
++3. 说明重复收藏的判定条件，以及 list/detail 的查询条件和分页换算。
++4. 标出商品快照字段 `productName/productSubTitle/productPrice/productPic` 在两种配置下的来源。
++5. 编写最小 Mockito 测试，调用真实 `MemberCollectionServiceImpl`，覆盖有效新增、重复、缺失/已删除商品、两种配置和当前会员查询条件。
++6. 记录未被测试证明的数据库、事务、索引、并发和 HTTP 边界。
++
++## 验收
++
++- 代码引用包含文件路径、方法和行号；
++- true 分支验证 MySQL 查询、删除状态判断、快照复制和 Mongo save；
++- false 分支验证不调用 MySQL 且保留请求快照；
++- 重复收藏验证不 save 且不再查商品；
++- list/detail 验证使用当前会员 ID；
++- 测试结果如实记录，不能把 Mockito 交互测试写成 Mongo/MySQL 或端到端证据。
++
++## 参考实现边界
++
++参考测试位于 `SDC/E1/src/test/java/com/macro/mall/sdc/e1/MemberCollectionServiceTest.java`。本题不要求修复产品代码；若学生提出 Mongo 唯一索引、事务或并发修复，需另列需求、失败场景和真实数据库证据。
++
++
++
++## 已发布学习参考答案
++
++- [答案说明、源码依据和验证记录](https://github.com/meng004/mall/tree/exp/e1-03/SDC/E1/answers/E1-03)
++- [独立参考分支](https://github.com/meng004/mall/tree/exp/e1-03)
++- 基线：`7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`；不创建PR，不合入mall主线。
++- JDK 17 定向验证：9（新增6、已有3）项通过，0失败/错误/跳过。仅证明源码和Mock调用，不证明真实DB/事务/HTTP链路。
++
++```sh
++git clone --branch exp/e1-03 --single-branch https://github.com/meng004/mall.git mall-e1-03
++cd mall-e1-03
++mvn -pl SDC/E1 -am -Dtest=MemberCollectionServiceTest,MallFactsTest -Dsurefire.failIfNoSpecifiedTests=false -DskipTests=false -Dmaven.compiler.proc=full test
++```
+diff --git a/SDC/E1/answers/E1-03/LOG.md b/SDC/E1/answers/E1-03/LOG.md
+new file mode 100644
+index 00000000..c45a526e
+--- /dev/null
++++ b/SDC/E1/answers/E1-03/LOG.md
+@@ -0,0 +1,13 @@
++# E1-03 工作日志
++
++- 基线：`7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`
++- 临时 checkout：`/private/tmp/mall-e1-03`，detached HEAD；原仓库未修改。
++- 新增测试：`SDC/E1/src/test/java/com/macro/mall/sdc/e1/MemberCollectionServiceTest.java`，6 个 `@Test` 方法。
++- 测试资源：`SDC/E1/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker` 使用仓库已有的 `mock-maker-subclass` 模式，避免受限环境的 agent attach 失败。
++- 测试改动：`SDC/E1/pom.xml` 仅以 test scope 引入 `mall-portal`，复用现有 JUnit/Mockito 依赖。
++- 产出补丁：`SDC/E1-03.patch`。
++- 运行命令：见 `README.md`。
++- Fresh 结果：JDK 17、离线 Maven 构建成功；`MallFactsTest` 3 项 + `MemberCollectionServiceTest` 6 项，共 9 项，0 failure、0 error、0 skipped。
++- 先行失败记录：默认 inline mock maker 在本机无法自附加 Byte Buddy agent；改用仓库已有 subclass 配置后通过。
++- 限制：未安装/启动 MongoDB；未连接 MySQL；未验证 Spring `@Value` 绑定、Mongo 索引/分页、事务、并发唯一性、认证链或 HTTP 响应。
++
+diff --git a/SDC/E1/answers/E1-03/README.md b/SDC/E1/answers/E1-03/README.md
+new file mode 100644
+index 00000000..118fa876
+--- /dev/null
++++ b/SDC/E1/answers/E1-03/README.md
+@@ -0,0 +1,97 @@
++# E1-03 商品收藏：导读参考答案
++
++基线：`7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`（mall，`sdc-java-migration`）。本材料只做代码导读和 Mockito 服务层核验，不连接 Mongo/MySQL，不宣称完成数据库或 HTTP 端到端验证。
++
++## 业务入口
++
++`MemberProductCollectionController` 的公开入口在 `mall-portal/src/main/java/com/macro/mall/portal/controller/MemberProductCollectionController.java`：
++
++- `POST /member/productCollection/add` 调 `MemberCollectionService.add`，返回 `count > 0` 成功，否则失败（28–35 行）。
++- `GET /member/productCollection/list` 调 `list(pageNum,pageSize)`，默认第 1 页、每页 5 条（49–56 行）。
++- `GET /member/productCollection/detail?productId=` 调 `detail`（58–64 行）。
++- 同一控制器还提供 delete/clear，本题重点只展开 add/list/detail。
++
++## add 数据流
++
++依据 `MemberCollectionServiceImpl.java:33–58`：
++
++1. `productId == null` 立即返回 0，不读取当前会员，也不触发任何仓储调用。
++2. `UmsMemberService.getCurrentMember()` 提供当前会员；服务把 `memberId`、`memberNickname`、`memberIcon` 写回请求对象。因此请求中的会员字段不是可信身份来源。
++3. 以当前会员 ID 与商品 ID 调 Mongo Repository 的 `findByMemberIdAndProductId` 去重。已有收藏返回 0，不查 MySQL，也不 save。
++4. `sqlEnable=true` 时调用 `PmsProductMapper.selectByPrimaryKey(productId)`。商品为空或 `deleteStatus == 1` 返回 0；否则把商品表的 `name`、`subTitle`、`price + ""`、`pic` 复制到收藏对象，再 `save` Mongo。
++5. `sqlEnable=false` 时跳过 MySQL，直接保存请求对象中已有的商品快照字段。该分支的前提是调用方已经提供所需字段，服务没有再补齐或校验。
++
++收藏文档 `MemberProductCollection.java:18–31` 保存会员字段、商品 ID、商品名称/图片/副标题/价格和创建时间；`memberId` 与 `productId` 有 Mongo `@Indexed`，Repository 的组合条件见 `MemberProductCollectionRepository.java`。
++
++## list/detail 查询条件
++
++- `list`（服务 67–70 行）从当前会员取得 ID，构造 `PageRequest.of(pageNum - 1, pageSize)`，调用 `findByMemberId(memberId, pageable)`。
++- `detail`（74–76 行）从当前会员取得 ID，调用 `findByMemberIdAndProductId(memberId, productId)`。
++- 因而两者都不能由请求参数指定任意会员。测试只验证传给 Repository 的条件与分页对象，不证明 Mongo 实际索引、排序或分页结果。
++
++## 关键判断
++
++| 判断 | 源码依据 | 本轮证据边界 |
++|---|---|---|
++| 收藏按当前会员+商品去重 | 服务 38–43 行；Repository 方法签名 | Mockito 验证调用参数；未验证并发竞态或真实唯一索引 |
++| `sqlEnable` 决定是否补齐 MySQL 商品快照 | 服务 44–53 行；`application.yml` 与 `application-prod.yml` 均为 true | 两分支单元测试；未启动 Spring 配置绑定 |
++| MySQL 商品为空/已删除时不写收藏 | 服务 45–48 行 | mock 返回值测试；未验证数据库删除状态读取 |
++| 快照来源在 true 分支是商品表，在 false 分支是请求体 | 服务 49–52 行与 44 行条件 | 捕获保存对象；未验证调用方是否始终提交完整快照 |
++| 查询限定当前会员 | 服务 67–76 行 | mock Repository 参数；未验证 Mongo 端实际执行计划 |
++
++## Mockito 验证
++
++`SDC/E1/src/test/java/com/macro/mall/sdc/e1/MemberCollectionServiceTest.java` 直接实例化真实 `MemberCollectionServiceImpl`，仅替换三个协作者：`PmsProductMapper`、`MemberProductCollectionRepository`、`UmsMemberService`。覆盖：
++
++- true：MySQL 商品快照覆盖请求快照并保存；
++- false：跳过 MySQL，保留请求快照并保存；
++- 重复收藏：返回 0，跳过查商品与 save；
++- 商品不存在或已删除：返回 0，不 save；
++- list/detail：传入当前会员 ID 及预期分页；
++- 缺少 productId：早退且不与任何协作者交互。
++
++这些测试证明真实服务的分支和输入输出协议，以及服务向协作者传递的查询条件；它们不能证明 Mongo/MySQL、事务、索引、并发唯一性或完整认证链。
++
++## 图示
++
++```mermaid
++flowchart LR
++  C[Controller add/list/detail] --> S[MemberCollectionServiceImpl]
++  S --> M[UmsMemberService\n当前会员]
++  S --> D{会员ID + 商品ID\nMongo 去重查询}
++  D -->|已有| R0[返回 0]
++  D -->|不存在| F{sqlEnable}
++  F -->|true| SQL[PmsProductMapper\nMySQL 商品表]
++  SQL -->|空/已删除| R0
++  SQL -->|有效| SNAP[复制 name/subTitle/price/pic]
++  F -->|false| REQ[保留请求快照字段]
++  SNAP --> SAVE[Mongo Repository.save]
++  REQ --> SAVE
++  S --> Q[Mongo findByMemberId / findByMemberIdAndProductId]
++```
++
++## 运行记录
++
++命令：
++
++```text
++JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home \
++PATH=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home/bin:$PATH \
++mvn -o -pl SDC/E1 -am test -Dtest=MemberCollectionServiceTest,MallFactsTest \
++  -Dsurefire.failIfNoSpecifiedTests=false
++```
++
++结果：本轮另以 JDK 17 fresh 执行 `mvn -o -pl SDC/E1 -am clean test -Dtest=MemberCollectionServiceTest,MallFactsTest -Dsurefire.failIfNoSpecifiedTests=false`，BUILD SUCCESS：9 项（`MallFactsTest` 3、收藏服务测试 6），0 failure/error/skipped。JDK 26 尝试未能编译基线 `mall-common`，`WebLogAspect` 找不到 Lombok 生成的 `WebLog` getter/setter（16 个找不到符号错误）；该环境差异未通过改产品代码处理。
++
++未安装/启动 Mongo 或连接 MySQL，也未新增依赖。
++
++
++## 可复现参考答案
++
++基线 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`；独立分支 `exp/e1-03`。
++
++```sh
++mvn -pl SDC/E1 -am -Dtest=MemberCollectionServiceTest,MallFactsTest -Dsurefire.failIfNoSpecifiedTests=false -DskipTests=false -Dmaven.compiler.proc=full test
++```
++
++本轮 JDK 17 定向测试 9（新增6、已有3） 项通过，0失败、0错误、0跳过。首次运行需要联网下载依赖；无须运行依赖数据库的全部测试。
+diff --git a/SDC/E1/answers/E1-03/review-test.log b/SDC/E1/answers/E1-03/review-test.log
+new file mode 100644
+index 00000000..f956e88a
+--- /dev/null
++++ b/SDC/E1/answers/E1-03/review-test.log
+@@ -0,0 +1,156 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-portal                                                        [jar]
++[INFO] SDC - software design and conventions                              [pom]
++[INFO] SDC E1                                                             [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/7]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/7]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e1-03/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/7]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e1-03/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/7]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e1-03/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e1-03/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e1-03/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [5/7]
++[INFO]   from mall-portal/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 5 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e1-03/mall-portal/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [6/7]
++[INFO]   from SDC/pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] -----------------------< com.macro.mall:sdc-e1 >------------------------
++[INFO] Building SDC E1 1.0-SNAPSHOT                                       [7/7]
++[INFO]   from SDC/E1/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e1 ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e1-03/SDC/E1/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e1-03/SDC/E1/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e1 ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e1 ---
++[INFO] Copying 1 resource from src/test/resources to target/test-classes
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e1 ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e1 ---
++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
++[INFO] 
++[INFO] -------------------------------------------------------
++[INFO]  T E S T S
++[INFO] -------------------------------------------------------
++[INFO] Running com.macro.mall.sdc.e1.MallFactsTest
++[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.054 s -- in com.macro.mall.sdc.e1.MallFactsTest
++[INFO] Running com.macro.mall.sdc.e1.MemberCollectionServiceTest
++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
++[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.82 s -- in com.macro.mall.sdc.e1.MemberCollectionServiceTest
++[INFO] 
++[INFO] Results:
++[INFO] 
++[INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0
++[INFO] 
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.001 s]
++[INFO] mall-common ........................................ SUCCESS [  0.275 s]
++[INFO] mall-mbg ........................................... SUCCESS [  0.079 s]
++[INFO] mall-security ...................................... SUCCESS [  0.019 s]
++[INFO] mall-portal ........................................ SUCCESS [  0.062 s]
++[INFO] SDC - software design and conventions .............. SUCCESS [  0.000 s]
++[INFO] SDC E1 ............................................. SUCCESS [ 11.145 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD SUCCESS
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  11.724 s
++[INFO] Finished at: 2026-11-02T09:23:01+08:00
++[INFO] ------------------------------------------------------------------------
+diff --git a/SDC/E1/pom.xml b/SDC/E1/pom.xml
+index f245616b..54e8269d 100644
+--- a/SDC/E1/pom.xml
++++ b/SDC/E1/pom.xml
+@@ -4,4 +4,10 @@
+   <parent><groupId>com.macro.mall</groupId><artifactId>sdc</artifactId><version>1.0-SNAPSHOT</version></parent>
+   <artifactId>sdc-e1</artifactId><name>SDC E1</name>
+ 
++  <dependencies>
++    <dependency>
++      <groupId>com.macro.mall</groupId><artifactId>mall-portal</artifactId><version>${project.version}</version><scope>test</scope>
++    </dependency>
++  </dependencies>
++
+ </project>
+diff --git a/SDC/E1/src/test/java/com/macro/mall/sdc/e1/MemberCollectionServiceTest.java b/SDC/E1/src/test/java/com/macro/mall/sdc/e1/MemberCollectionServiceTest.java
+new file mode 100644
+index 00000000..87f3d5bc
+--- /dev/null
++++ b/SDC/E1/src/test/java/com/macro/mall/sdc/e1/MemberCollectionServiceTest.java
+@@ -0,0 +1,143 @@
++package com.macro.mall.sdc.e1;
++
++import com.macro.mall.mapper.PmsProductMapper;
++import com.macro.mall.model.PmsProduct;
++import com.macro.mall.model.UmsMember;
++import com.macro.mall.portal.domain.MemberProductCollection;
++import com.macro.mall.portal.repository.MemberProductCollectionRepository;
++import com.macro.mall.portal.service.UmsMemberService;
++import com.macro.mall.portal.service.impl.MemberCollectionServiceImpl;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.Test;
++import org.springframework.data.domain.Page;
++import org.springframework.data.domain.PageImpl;
++import org.springframework.data.domain.PageRequest;
++import org.springframework.test.util.ReflectionTestUtils;
++
++import java.math.BigDecimal;
++import java.util.List;
++
++import static org.junit.jupiter.api.Assertions.*;
++import static org.mockito.Mockito.*;
++
++class MemberCollectionServiceTest {
++    private final PmsProductMapper productMapper = mock(PmsProductMapper.class);
++    private final MemberProductCollectionRepository repository = mock(MemberProductCollectionRepository.class);
++    private final UmsMemberService memberService = mock(UmsMemberService.class);
++    private final MemberCollectionServiceImpl service = new MemberCollectionServiceImpl();
++    private final UmsMember member = new UmsMember();
++
++    @BeforeEach
++    void setUp() {
++        member.setId(101L);
++        member.setNickname("member-101");
++        member.setIcon("member.png");
++        when(memberService.getCurrentMember()).thenReturn(member);
++        ReflectionTestUtils.setField(service, "productMapper", productMapper);
++        ReflectionTestUtils.setField(service, "productCollectionRepository", repository);
++        ReflectionTestUtils.setField(service, "memberService", memberService);
++    }
++
++    @Test
++    void sqlEnabledCopiesMySqlProductSnapshotAndUsesCurrentMemberForDeduplication() {
++        ReflectionTestUtils.setField(service, "sqlEnable", true);
++        when(repository.findByMemberIdAndProductId(101L, 9L)).thenReturn(null);
++        PmsProduct product = new PmsProduct();
++        product.setDeleteStatus(0);
++        product.setName("Product");
++        product.setSubTitle("Subtitle");
++        product.setPrice(new BigDecimal("12.50"));
++        product.setPic("product.png");
++        when(productMapper.selectByPrimaryKey(9L)).thenReturn(product);
++        MemberProductCollection request = new MemberProductCollection();
++        request.setMemberId(999L);
++        request.setProductId(9L);
++        request.setProductName("untrusted request name");
++
++        assertEquals(1, service.add(request));
++
++        assertEquals(101L, request.getMemberId());
++        assertEquals("member-101", request.getMemberNickname());
++        assertEquals("member.png", request.getMemberIcon());
++        assertEquals("Product", request.getProductName());
++        assertEquals("Subtitle", request.getProductSubTitle());
++        assertEquals("12.50", request.getProductPrice());
++        assertEquals("product.png", request.getProductPic());
++        verify(repository).findByMemberIdAndProductId(101L, 9L);
++        verify(productMapper).selectByPrimaryKey(9L);
++        verify(repository).save(request);
++    }
++
++    @Test
++    void sqlDisabledPreservesRequestProductSnapshotAndSkipsMySql() {
++        ReflectionTestUtils.setField(service, "sqlEnable", false);
++        when(repository.findByMemberIdAndProductId(101L, 9L)).thenReturn(null);
++        MemberProductCollection request = new MemberProductCollection();
++        request.setProductId(9L);
++        request.setProductName("request name");
++        request.setProductSubTitle("request subtitle");
++        request.setProductPrice("8.00");
++        request.setProductPic("request.png");
++
++        assertEquals(1, service.add(request));
++
++        assertEquals("request name", request.getProductName());
++        assertEquals("request subtitle", request.getProductSubTitle());
++        assertEquals("8.00", request.getProductPrice());
++        assertEquals("request.png", request.getProductPic());
++        verifyNoInteractions(productMapper);
++        verify(repository).save(request);
++    }
++
++    @Test
++    void duplicateSkipsProductLookupAndSave() {
++        ReflectionTestUtils.setField(service, "sqlEnable", true);
++        when(repository.findByMemberIdAndProductId(101L, 9L)).thenReturn(new MemberProductCollection());
++        MemberProductCollection request = new MemberProductCollection();
++        request.setProductId(9L);
++
++        assertEquals(0, service.add(request));
++
++        verifyNoInteractions(productMapper);
++        verify(repository, never()).save(any());
++    }
++
++    @Test
++    void sqlEnabledRejectsMissingOrDeletedMySqlProduct() {
++        ReflectionTestUtils.setField(service, "sqlEnable", true);
++        when(repository.findByMemberIdAndProductId(101L, 9L)).thenReturn(null);
++        when(productMapper.selectByPrimaryKey(9L)).thenReturn(null);
++        MemberProductCollection request = new MemberProductCollection();
++        request.setProductId(9L);
++        assertEquals(0, service.add(request));
++        verify(repository, never()).save(any());
++
++        PmsProduct deleted = new PmsProduct();
++        deleted.setDeleteStatus(1);
++        when(productMapper.selectByPrimaryKey(10L)).thenReturn(deleted);
++        request.setProductId(10L);
++        assertEquals(0, service.add(request));
++        verify(repository, never()).save(any());
++    }
++
++    @Test
++    void listAndDetailAreScopedToCurrentMember() {
++        PageRequest pageable = PageRequest.of(1, 5);
++        Page<MemberProductCollection> expected = new PageImpl<>(List.of(), pageable, 0);
++        when(repository.findByMemberId(101L, pageable)).thenReturn(expected);
++        MemberProductCollection detail = new MemberProductCollection();
++        when(repository.findByMemberIdAndProductId(101L, 9L)).thenReturn(detail);
++
++        assertSame(expected, service.list(2, 5));
++        assertSame(detail, service.detail(9L));
++
++        verify(repository).findByMemberId(101L, pageable);
++        verify(repository).findByMemberIdAndProductId(101L, 9L);
++    }
++
++    @Test
++    void addWithoutProductIdReturnsBeforeReadingCurrentMember() {
++        assertEquals(0, service.add(new MemberProductCollection()));
++        verifyNoInteractions(memberService, repository, productMapper);
++    }
++}
+diff --git a/SDC/E1/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker b/SDC/E1/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker
+new file mode 100644
+index 00000000..fdbd0b15
+--- /dev/null
++++ b/SDC/E1/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker
+@@ -0,0 +1 @@
++mock-maker-subclass

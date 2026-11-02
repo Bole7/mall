@@ -1,0 +1,4 @@
+mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminServiceImpl.java:52:    private UmsAdminMapper adminMapper;
+mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java:27:    private UmsAdminMapper adminMapper;
+mall-admin/src/main/java/com/macro/mall/config/MallSecurityConfig.java:25:    private UmsAdminService adminService;
+mall-admin/src/main/java/com/macro/mall/controller/UmsAdminController.java:42:    private UmsAdminService adminService;

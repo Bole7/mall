@@ -1,0 +1,823 @@
+diff --git a/SDC/E4/pom.xml b/SDC/E4/pom.xml
+index 865bae29..0f6f7924 100644
+--- a/SDC/E4/pom.xml
++++ b/SDC/E4/pom.xml
+@@ -3,5 +3,8 @@
+   <modelVersion>4.0.0</modelVersion>
+   <parent><groupId>com.macro.mall</groupId><artifactId>sdc</artifactId><version>1.0-SNAPSHOT</version></parent>
+   <artifactId>sdc-e4</artifactId><name>SDC E4</name>
+-  <dependencies><dependency><groupId>com.macro.mall</groupId><artifactId>mall-portal</artifactId><version>${project.version}</version><scope>test</scope></dependency></dependencies>
++  <dependencies>
++    <dependency><groupId>com.macro.mall</groupId><artifactId>mall-portal</artifactId><version>${project.version}</version><scope>test</scope></dependency>
++    <dependency><groupId>com.macro.mall</groupId><artifactId>mall-admin</artifactId><version>${project.version}</version><scope>test</scope></dependency>
++  </dependencies>
+ </project>
+diff --git a/SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java
+new file mode 100644
+index 00000000..870269ff
+--- /dev/null
++++ b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java
+@@ -0,0 +1,51 @@
++package com.macro.mall.sdc.e4;
++
++import com.macro.mall.mapper.CmsPrefrenceAreaMapper;
++import com.macro.mall.model.CmsPrefrenceArea;
++import com.macro.mall.model.CmsPrefrenceAreaExample;
++import com.macro.mall.service.impl.CmsPrefrenceAreaServiceImpl;
++import org.junit.jupiter.api.Test;
++import org.mockito.ArgumentCaptor;
++import org.springframework.context.annotation.AnnotationConfigApplicationContext;
++
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.List;
++
++import static org.junit.jupiter.api.Assertions.*;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.*;
++
++class CmsPrefrenceAreaInjectionTest {
++    @Test
++    void listAndSpringWiring() {
++        CmsPrefrenceAreaMapper mapper = mock(CmsPrefrenceAreaMapper.class);
++        List<CmsPrefrenceArea> empty = Collections.emptyList();
++        CmsPrefrenceArea first = new CmsPrefrenceArea();
++        CmsPrefrenceArea second = new CmsPrefrenceArea();
++        List<CmsPrefrenceArea> expected = Arrays.asList(first, second);
++        when(mapper.selectByExample(any())).thenReturn(empty, expected, expected);
++
++        CmsPrefrenceAreaServiceImpl service = new CmsPrefrenceAreaServiceImpl(mapper);
++        assertTrue(service.listAll().isEmpty());
++        List<CmsPrefrenceArea> actual = service.listAll();
++        assertEquals(2, actual.size());
++        assertSame(first, actual.get(0));
++        assertSame(second, actual.get(1));
++
++        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
++            context.registerBean(CmsPrefrenceAreaMapper.class, () -> mapper);
++            context.register(CmsPrefrenceAreaServiceImpl.class);
++            context.refresh();
++            assertSame(expected, context.getBean(CmsPrefrenceAreaServiceImpl.class).listAll());
++        }
++
++        ArgumentCaptor<CmsPrefrenceAreaExample> examples = ArgumentCaptor.forClass(CmsPrefrenceAreaExample.class);
++        verify(mapper, times(3)).selectByExample(examples.capture());
++        for (CmsPrefrenceAreaExample example : examples.getAllValues()) {
++            assertTrue(example.getOredCriteria().isEmpty());
++            assertNull(example.getOrderByClause());
++            assertFalse(example.isDistinct());
++        }
++    }
++}
+diff --git a/SDC/answers/E4-10/CmsPrefrenceAreaInjectionTest.after.java b/SDC/answers/E4-10/CmsPrefrenceAreaInjectionTest.after.java
+new file mode 100644
+index 00000000..870269ff
+--- /dev/null
++++ b/SDC/answers/E4-10/CmsPrefrenceAreaInjectionTest.after.java
+@@ -0,0 +1,51 @@
++package com.macro.mall.sdc.e4;
++
++import com.macro.mall.mapper.CmsPrefrenceAreaMapper;
++import com.macro.mall.model.CmsPrefrenceArea;
++import com.macro.mall.model.CmsPrefrenceAreaExample;
++import com.macro.mall.service.impl.CmsPrefrenceAreaServiceImpl;
++import org.junit.jupiter.api.Test;
++import org.mockito.ArgumentCaptor;
++import org.springframework.context.annotation.AnnotationConfigApplicationContext;
++
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.List;
++
++import static org.junit.jupiter.api.Assertions.*;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.*;
++
++class CmsPrefrenceAreaInjectionTest {
++    @Test
++    void listAndSpringWiring() {
++        CmsPrefrenceAreaMapper mapper = mock(CmsPrefrenceAreaMapper.class);
++        List<CmsPrefrenceArea> empty = Collections.emptyList();
++        CmsPrefrenceArea first = new CmsPrefrenceArea();
++        CmsPrefrenceArea second = new CmsPrefrenceArea();
++        List<CmsPrefrenceArea> expected = Arrays.asList(first, second);
++        when(mapper.selectByExample(any())).thenReturn(empty, expected, expected);
++
++        CmsPrefrenceAreaServiceImpl service = new CmsPrefrenceAreaServiceImpl(mapper);
++        assertTrue(service.listAll().isEmpty());
++        List<CmsPrefrenceArea> actual = service.listAll();
++        assertEquals(2, actual.size());
++        assertSame(first, actual.get(0));
++        assertSame(second, actual.get(1));
++
++        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
++            context.registerBean(CmsPrefrenceAreaMapper.class, () -> mapper);
++            context.register(CmsPrefrenceAreaServiceImpl.class);
++            context.refresh();
++            assertSame(expected, context.getBean(CmsPrefrenceAreaServiceImpl.class).listAll());
++        }
++
++        ArgumentCaptor<CmsPrefrenceAreaExample> examples = ArgumentCaptor.forClass(CmsPrefrenceAreaExample.class);
++        verify(mapper, times(3)).selectByExample(examples.capture());
++        for (CmsPrefrenceAreaExample example : examples.getAllValues()) {
++            assertTrue(example.getOredCriteria().isEmpty());
++            assertNull(example.getOrderByClause());
++            assertFalse(example.isDistinct());
++        }
++    }
++}
+diff --git a/SDC/answers/E4-10/CmsPrefrenceAreaInjectionTest.before.java b/SDC/answers/E4-10/CmsPrefrenceAreaInjectionTest.before.java
+new file mode 100644
+index 00000000..0e44cf69
+--- /dev/null
++++ b/SDC/answers/E4-10/CmsPrefrenceAreaInjectionTest.before.java
+@@ -0,0 +1,53 @@
++package com.macro.mall.sdc.e4;
++
++import com.macro.mall.mapper.CmsPrefrenceAreaMapper;
++import com.macro.mall.model.CmsPrefrenceArea;
++import com.macro.mall.model.CmsPrefrenceAreaExample;
++import com.macro.mall.service.impl.CmsPrefrenceAreaServiceImpl;
++import org.junit.jupiter.api.Test;
++import org.mockito.ArgumentCaptor;
++import org.springframework.context.annotation.AnnotationConfigApplicationContext;
++import org.springframework.test.util.ReflectionTestUtils;
++
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.List;
++
++import static org.junit.jupiter.api.Assertions.*;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.*;
++
++class CmsPrefrenceAreaInjectionTest {
++    @Test
++    void listAndSpringWiring() {
++        CmsPrefrenceAreaMapper mapper = mock(CmsPrefrenceAreaMapper.class);
++        List<CmsPrefrenceArea> empty = Collections.emptyList();
++        CmsPrefrenceArea first = new CmsPrefrenceArea();
++        CmsPrefrenceArea second = new CmsPrefrenceArea();
++        List<CmsPrefrenceArea> expected = Arrays.asList(first, second);
++        when(mapper.selectByExample(any())).thenReturn(empty, expected, expected);
++
++        CmsPrefrenceAreaServiceImpl service = new CmsPrefrenceAreaServiceImpl();
++        ReflectionTestUtils.setField(service, "prefrenceAreaMapper", mapper);
++        assertTrue(service.listAll().isEmpty());
++        List<CmsPrefrenceArea> actual = service.listAll();
++        assertEquals(2, actual.size());
++        assertSame(first, actual.get(0));
++        assertSame(second, actual.get(1));
++
++        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
++            context.registerBean(CmsPrefrenceAreaMapper.class, () -> mapper);
++            context.register(CmsPrefrenceAreaServiceImpl.class);
++            context.refresh();
++            assertSame(expected, context.getBean(CmsPrefrenceAreaServiceImpl.class).listAll());
++        }
++
++        ArgumentCaptor<CmsPrefrenceAreaExample> examples = ArgumentCaptor.forClass(CmsPrefrenceAreaExample.class);
++        verify(mapper, times(3)).selectByExample(examples.capture());
++        for (CmsPrefrenceAreaExample example : examples.getAllValues()) {
++            assertTrue(example.getOredCriteria().isEmpty());
++            assertNull(example.getOrderByClause());
++            assertFalse(example.isDistinct());
++        }
++    }
++}
+diff --git a/SDC/answers/E4-10/CmsPrefrenceAreaServiceImpl.after.java b/SDC/answers/E4-10/CmsPrefrenceAreaServiceImpl.after.java
+new file mode 100644
+index 00000000..89655c40
+--- /dev/null
++++ b/SDC/answers/E4-10/CmsPrefrenceAreaServiceImpl.after.java
+@@ -0,0 +1,27 @@
++package com.macro.mall.service.impl;
++
++import com.macro.mall.mapper.CmsPrefrenceAreaMapper;
++import com.macro.mall.model.CmsPrefrenceArea;
++import com.macro.mall.model.CmsPrefrenceAreaExample;
++import com.macro.mall.service.CmsPrefrenceAreaService;
++import org.springframework.stereotype.Service;
++
++import java.util.List;
++
++/**
++ * 商品优选管理Service实现类
++ * Created by macro on 2018/6/1.
++ */
++@Service
++public class CmsPrefrenceAreaServiceImpl implements CmsPrefrenceAreaService {
++    private final CmsPrefrenceAreaMapper prefrenceAreaMapper;
++
++    public CmsPrefrenceAreaServiceImpl(CmsPrefrenceAreaMapper prefrenceAreaMapper) {
++        this.prefrenceAreaMapper = prefrenceAreaMapper;
++    }
++
++    @Override
++    public List<CmsPrefrenceArea> listAll() {
++        return prefrenceAreaMapper.selectByExample(new CmsPrefrenceAreaExample());
++    }
++}
+diff --git a/SDC/answers/E4-10/E4-10.patch b/SDC/answers/E4-10/E4-10.patch
+new file mode 100644
+index 00000000..536f3a1c
+--- /dev/null
++++ b/SDC/answers/E4-10/E4-10.patch
+@@ -0,0 +1,97 @@
++diff --git a/SDC/E4/pom.xml b/SDC/E4/pom.xml
++index 865bae29..0f6f7924 100644
++--- a/SDC/E4/pom.xml
+++++ b/SDC/E4/pom.xml
++@@ -3,5 +3,8 @@
++   <modelVersion>4.0.0</modelVersion>
++   <parent><groupId>com.macro.mall</groupId><artifactId>sdc</artifactId><version>1.0-SNAPSHOT</version></parent>
++   <artifactId>sdc-e4</artifactId><name>SDC E4</name>
++-  <dependencies><dependency><groupId>com.macro.mall</groupId><artifactId>mall-portal</artifactId><version>${project.version}</version><scope>test</scope></dependency></dependencies>
+++  <dependencies>
+++    <dependency><groupId>com.macro.mall</groupId><artifactId>mall-portal</artifactId><version>${project.version}</version><scope>test</scope></dependency>
+++    <dependency><groupId>com.macro.mall</groupId><artifactId>mall-admin</artifactId><version>${project.version}</version><scope>test</scope></dependency>
+++  </dependencies>
++ </project>
++diff --git a/SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java
++new file mode 100644
++index 00000000..870269ff
++--- /dev/null
+++++ b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java
++@@ -0,0 +1,51 @@
+++package com.macro.mall.sdc.e4;
+++
+++import com.macro.mall.mapper.CmsPrefrenceAreaMapper;
+++import com.macro.mall.model.CmsPrefrenceArea;
+++import com.macro.mall.model.CmsPrefrenceAreaExample;
+++import com.macro.mall.service.impl.CmsPrefrenceAreaServiceImpl;
+++import org.junit.jupiter.api.Test;
+++import org.mockito.ArgumentCaptor;
+++import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+++
+++import java.util.Arrays;
+++import java.util.Collections;
+++import java.util.List;
+++
+++import static org.junit.jupiter.api.Assertions.*;
+++import static org.mockito.ArgumentMatchers.any;
+++import static org.mockito.Mockito.*;
+++
+++class CmsPrefrenceAreaInjectionTest {
+++    @Test
+++    void listAndSpringWiring() {
+++        CmsPrefrenceAreaMapper mapper = mock(CmsPrefrenceAreaMapper.class);
+++        List<CmsPrefrenceArea> empty = Collections.emptyList();
+++        CmsPrefrenceArea first = new CmsPrefrenceArea();
+++        CmsPrefrenceArea second = new CmsPrefrenceArea();
+++        List<CmsPrefrenceArea> expected = Arrays.asList(first, second);
+++        when(mapper.selectByExample(any())).thenReturn(empty, expected, expected);
+++
+++        CmsPrefrenceAreaServiceImpl service = new CmsPrefrenceAreaServiceImpl(mapper);
+++        assertTrue(service.listAll().isEmpty());
+++        List<CmsPrefrenceArea> actual = service.listAll();
+++        assertEquals(2, actual.size());
+++        assertSame(first, actual.get(0));
+++        assertSame(second, actual.get(1));
+++
+++        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+++            context.registerBean(CmsPrefrenceAreaMapper.class, () -> mapper);
+++            context.register(CmsPrefrenceAreaServiceImpl.class);
+++            context.refresh();
+++            assertSame(expected, context.getBean(CmsPrefrenceAreaServiceImpl.class).listAll());
+++        }
+++
+++        ArgumentCaptor<CmsPrefrenceAreaExample> examples = ArgumentCaptor.forClass(CmsPrefrenceAreaExample.class);
+++        verify(mapper, times(3)).selectByExample(examples.capture());
+++        for (CmsPrefrenceAreaExample example : examples.getAllValues()) {
+++            assertTrue(example.getOredCriteria().isEmpty());
+++            assertNull(example.getOrderByClause());
+++            assertFalse(example.isDistinct());
+++        }
+++    }
+++}
++diff --git a/mall-admin/src/main/java/com/macro/mall/service/impl/CmsPrefrenceAreaServiceImpl.java b/mall-admin/src/main/java/com/macro/mall/service/impl/CmsPrefrenceAreaServiceImpl.java
++index 8e95af17..89655c40 100644
++--- a/mall-admin/src/main/java/com/macro/mall/service/impl/CmsPrefrenceAreaServiceImpl.java
+++++ b/mall-admin/src/main/java/com/macro/mall/service/impl/CmsPrefrenceAreaServiceImpl.java
++@@ -4,7 +4,6 @@ import com.macro.mall.mapper.CmsPrefrenceAreaMapper;
++ import com.macro.mall.model.CmsPrefrenceArea;
++ import com.macro.mall.model.CmsPrefrenceAreaExample;
++ import com.macro.mall.service.CmsPrefrenceAreaService;
++-import org.springframework.beans.factory.annotation.Autowired;
++ import org.springframework.stereotype.Service;
++ 
++ import java.util.List;
++@@ -15,8 +14,11 @@ import java.util.List;
++  */
++ @Service
++ public class CmsPrefrenceAreaServiceImpl implements CmsPrefrenceAreaService {
++-    @Autowired
++-    private CmsPrefrenceAreaMapper prefrenceAreaMapper;
+++    private final CmsPrefrenceAreaMapper prefrenceAreaMapper;
+++
+++    public CmsPrefrenceAreaServiceImpl(CmsPrefrenceAreaMapper prefrenceAreaMapper) {
+++        this.prefrenceAreaMapper = prefrenceAreaMapper;
+++    }
++ 
++     @Override
++     public List<CmsPrefrenceArea> listAll() {
+diff --git a/SDC/answers/E4-10/ISSUE.md b/SDC/answers/E4-10/ISSUE.md
+new file mode 100644
+index 00000000..e0605d43
+--- /dev/null
++++ b/SDC/answers/E4-10/ISSUE.md
+@@ -0,0 +1,29 @@
++# [草稿] E4-10：商品优选列表服务的单依赖构造器注入
++
++> 参考答案；非 PR。本草稿未创建 Issue，编号由 GitHub 在创建时分配。
++
++## 目标
++
++围绕 `CmsPrefrenceAreaServiceImpl` 验证单依赖服务的构造器注入。先阅读实现和已有调用关系，再比较改造前后的装配方式，说明依赖明确性、字段不可变性和测试便利性的变化，并指出构造器注入本身不改变 `listAll()` 的查询语义。
++
++## 参考版本
++
++- 基线：`7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`
++- 参考分支建议：审查后发布为 `exp/e4-10`（当前仅在隔离副本本地存在，尚未推送）
++- 参考实现：`mall-admin/src/main/java/com/macro/mall/service/impl/CmsPrefrenceAreaServiceImpl.java`
++- 测试：`SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java`
++- 改后参考提交：`7bf6871080febea5af5d7b4736aafeaba8b58a76`
++
++## 验收
++
++从 mall 仓库根目录执行：
++
++```sh
++mvn -o -pl SDC/E4 -am -Dtest=CmsPrefrenceAreaInjectionTest -Dsurefire.failIfNoSpecifiedTests=false -DskipTests=false -Dmaven.compiler.proc=full test
++```
++
++基线反射装配测试和改后构造器装配测试，在 OpenJDK 26.0.1、Maven 3.9.16 的离线缓存环境中分别通过 1 项，失败、错误、跳过均为 0。参考答案目录保留两次完整日志和前后测试源码。
++
++## 限制
++
++测试使用 Mapper mock，不连接数据库；最小 Spring 容器只验证 Mapper bean 与服务 bean 的装配，不启动完整应用，也不证明生产环境扫描配置。参考测试覆盖空/多元素返回及原查询条件，不代表数据库集成或端到端验收。
+diff --git a/SDC/answers/E4-10/README.md b/SDC/answers/E4-10/README.md
+new file mode 100644
+index 00000000..7a98a241
+--- /dev/null
++++ b/SDC/answers/E4-10/README.md
+@@ -0,0 +1,32 @@
++本题独立参考分支：`refs/heads/exp/e4-10`。仅作学习参考，不向 mall 主线创建或合并 PR。
++
++# E4-10 参考答案：构造器注入
++
++## 参考代码入口
++
++本材料对应 mall `SDC/E4`。参考分支 `exp/e4-10` 与 [Issue #50](https://github.com/meng004/mall/issues/50) 已发布；测试位于 `SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java`，服务实现位于 `mall-admin/src/main/java/com/macro/mall/service/impl/CmsPrefrenceAreaServiceImpl.java`。
++
++## 版本与差异
++
++- 基线：`7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`
++- 隔离副本分支：`exp/e4-10`
++- 改后 HEAD：`7bf6871080febea5af5d7b4736aafeaba8b58a76`
++- checkout：`/private/tmp/e4-10-answer`
++- 改动：`CmsPrefrenceAreaServiceImpl` 将 Mapper 字段注入改为 `final` 单参数构造器注入；`SDC/E4` 测试依赖增加 `mall-admin`；新增改后服务测试。
++- 可应用补丁：`E4-10.patch`，在 mall 仓库根目录以 `rtk git apply <补丁路径>` 应用。
++
++`CmsPrefrenceAreaServiceImpl.after.java` 是改后完整服务源码。`CmsPrefrenceAreaInjectionTest.before.java` 和 `CmsPrefrenceAreaInjectionTest.after.java` 展示同一行为测试改造前后的对象装配差异；正式提交只包含改后测试。
++
++## 验证
++
++实际环境：OpenJDK 26.0.1、Maven 3.9.16、离线依赖缓存。改前及改后各执行一次下列命令，测试结果均为 1 项通过、0 失败、0 错误、0 跳过，且 Maven reactor 全部成功。完整日志分别见 `tests-before.log`、`tests-after.log`。
++
++```sh
++rtk env JAVA_HOME=/opt/homebrew/opt/java/libexec/openjdk.jdk/Contents/Home /opt/homebrew/bin/mvn -o -pl SDC/E4 -am -Dtest=CmsPrefrenceAreaInjectionTest -Dsurefire.failIfNoSpecifiedTests=false -DskipTests=false -Dmaven.compiler.proc=full test
++```
++
++改前测试通过无参构造和反射设置字段建立对象；改后直接 `new CmsPrefrenceAreaServiceImpl(mapper)`。两者验证空列表、多元素列表的对象与顺序、传给 Mapper 的查询条件，以及独立 `AnnotationConfigApplicationContext` 注册 Mapper 后能创建并调用服务。
++
++## 边界
++
++测试使用 Mockito Mapper，不连接数据库。Spring 验证只注册一个 Mapper bean 和服务类，不启动完整应用或执行项目组件扫描；它证明单构造器可由 Spring 装配，不证明完整生产环境配置。此次不验证数据库内容、事务或端到端 HTTP 行为。
+diff --git a/SDC/answers/E4-10/tests-after.log b/SDC/answers/E4-10/tests-after.log
+new file mode 100644
+index 00000000..b53a120c
+--- /dev/null
++++ b/SDC/answers/E4-10/tests-after.log
+@@ -0,0 +1,190 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-admin                                                         [jar]
++[INFO] mall-portal                                                        [jar]
++[INFO] SDC - software design and conventions                              [pom]
++[INFO] SDC E4                                                             [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/8]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/8]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-10-answer/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/8]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-10-answer/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/8]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-10-answer/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/e4-10-answer/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-10-answer/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-admin >----------------------
++[INFO] Building mall-admin 1.0-SNAPSHOT                                   [5/8]
++[INFO]   from mall-admin/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-admin ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 23 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-admin ---
++[INFO] Recompiling the module because of changed source code.
++[INFO] Compiling 153 source files with javac [debug parameters release 17] to target/classes
++WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
++WARNING: sun.misc.Unsafe::objectFieldOffset has been called by lombok.permit.Permit
++WARNING: Please consider reporting this to the maintainers of class lombok.permit.Permit
++WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
++[WARNING] /private/tmp/e4-10-answer/mall-admin/src/main/java/com/macro/mall/dto/PmsProductParam.java:[15,1] Generating equals/hashCode implementation but without a call to superclass, even though this class does not extend java.lang.Object. If this is intentional, add '@EqualsAndHashCode(callSuper=false)' to your type.
++[INFO] /private/tmp/e4-10-answer/mall-admin/src/main/java/com/macro/mall/config/MallSecurityConfig.java: 某些输入文件使用或覆盖了已过时的 API。
++[INFO] /private/tmp/e4-10-answer/mall-admin/src/main/java/com/macro/mall/config/MallSecurityConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] /private/tmp/e4-10-answer/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java: /private/tmp/e4-10-answer/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java使用了未经检查或不安全的操作。
++[INFO] /private/tmp/e4-10-answer/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-admin ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-10-answer/mall-admin/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-admin ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-admin ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [6/8]
++[INFO]   from mall-portal/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 5 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-10-answer/mall-portal/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
++[INFO] 
++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [7/8]
++[INFO]   from SDC/pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] -----------------------< com.macro.mall:sdc-e4 >------------------------
++[INFO] Building SDC E4 1.0-SNAPSHOT                                       [8/8]
++[INFO]   from SDC/E4/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e4 ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-10-answer/SDC/E4/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/e4-10-answer/SDC/E4/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e4 ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e4 ---
++[INFO] Copying 1 resource from src/test/resources to target/test-classes
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e4 ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
++[INFO] /private/tmp/e4-10-answer/SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java: /private/tmp/e4-10-answer/SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java使用了未经检查或不安全的操作。
++[INFO] /private/tmp/e4-10-answer/SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e4 ---
++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
++[INFO] 
++[INFO] -------------------------------------------------------
++[INFO]  T E S T S
++[INFO] -------------------------------------------------------
++[INFO] Running com.macro.mall.sdc.e4.CmsPrefrenceAreaInjectionTest
++Mockito is currently self-attaching to enable the inline-mock-maker. This will no longer work in future releases of the JDK. Please add Mockito as an agent to your build as described in Mockito's documentation: https://javadoc.io/doc/org.mockito/mockito-core/latest/org.mockito/org/mockito/Mockito.html#0.3
++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.84 s -- in com.macro.mall.sdc.e4.CmsPrefrenceAreaInjectionTest
++[INFO] 
++[INFO] Results:
++[INFO] 
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
++[INFO] 
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.001 s]
++[INFO] mall-common ........................................ SUCCESS [  0.292 s]
++[INFO] mall-mbg ........................................... SUCCESS [  0.089 s]
++[INFO] mall-security ...................................... SUCCESS [  0.019 s]
++[INFO] mall-admin ......................................... SUCCESS [  1.200 s]
++[INFO] mall-portal ........................................ SUCCESS [  0.057 s]
++[INFO] SDC - software design and conventions .............. SUCCESS [  0.000 s]
++[INFO] SDC E4 ............................................. SUCCESS [ 11.362 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD SUCCESS
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  13.168 s
++[INFO] Finished at: 2026-11-02T08:26:27+08:00
++[INFO] ------------------------------------------------------------------------
+diff --git a/SDC/answers/E4-10/tests-before.log b/SDC/answers/E4-10/tests-before.log
+new file mode 100644
+index 00000000..308a9d2f
+--- /dev/null
++++ b/SDC/answers/E4-10/tests-before.log
+@@ -0,0 +1,199 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-admin                                                         [jar]
++[INFO] mall-portal                                                        [jar]
++[INFO] SDC - software design and conventions                              [pom]
++[INFO] SDC E4                                                             [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/8]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/8]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Recompiling the module because of changed source code.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
++WARNING: sun.misc.Unsafe::objectFieldOffset has been called by lombok.permit.Permit
++WARNING: Please consider reporting this to the maintainers of class lombok.permit.Permit
++WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-10-answer/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/8]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 230 source files with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-10-answer/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/8]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-10-answer/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/e4-10-answer/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++[INFO] /private/tmp/e4-10-answer/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 某些输入文件使用或覆盖了已过时的 API。
++[INFO] /private/tmp/e4-10-answer/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-10-answer/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-admin >----------------------
++[INFO] Building mall-admin 1.0-SNAPSHOT                                   [5/8]
++[INFO]   from mall-admin/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-admin ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 23 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-admin ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 153 source files with javac [debug parameters release 17] to target/classes
++[WARNING] /private/tmp/e4-10-answer/mall-admin/src/main/java/com/macro/mall/dto/PmsProductParam.java:[15,1] Generating equals/hashCode implementation but without a call to superclass, even though this class does not extend java.lang.Object. If this is intentional, add '@EqualsAndHashCode(callSuper=false)' to your type.
++[INFO] /private/tmp/e4-10-answer/mall-admin/src/main/java/com/macro/mall/config/MallSecurityConfig.java: 某些输入文件使用或覆盖了已过时的 API。
++[INFO] /private/tmp/e4-10-answer/mall-admin/src/main/java/com/macro/mall/config/MallSecurityConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] /private/tmp/e4-10-answer/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java: /private/tmp/e4-10-answer/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java使用了未经检查或不安全的操作。
++[INFO] /private/tmp/e4-10-answer/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-admin ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-10-answer/mall-admin/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-admin ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-admin ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [6/8]
++[INFO]   from mall-portal/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 5 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 94 source files with javac [debug parameters release 17] to target/classes
++[INFO] /private/tmp/e4-10-answer/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: /private/tmp/e4-10-answer/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java使用或覆盖了已过时的 API。
++[INFO] /private/tmp/e4-10-answer/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-10-answer/mall-portal/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
++[INFO] 
++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [7/8]
++[INFO]   from SDC/pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] -----------------------< com.macro.mall:sdc-e4 >------------------------
++[INFO] Building SDC E4 1.0-SNAPSHOT                                       [8/8]
++[INFO]   from SDC/E4/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e4 ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-10-answer/SDC/E4/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/e4-10-answer/SDC/E4/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e4 ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e4 ---
++[INFO] Copying 1 resource from src/test/resources to target/test-classes
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e4 ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
++[INFO] /private/tmp/e4-10-answer/SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java: /private/tmp/e4-10-answer/SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java使用了未经检查或不安全的操作。
++[INFO] /private/tmp/e4-10-answer/SDC/E4/src/test/java/com/macro/mall/sdc/e4/CmsPrefrenceAreaInjectionTest.java: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e4 ---
++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
++[INFO] 
++[INFO] -------------------------------------------------------
++[INFO]  T E S T S
++[INFO] -------------------------------------------------------
++[INFO] Running com.macro.mall.sdc.e4.CmsPrefrenceAreaInjectionTest
++Mockito is currently self-attaching to enable the inline-mock-maker. This will no longer work in future releases of the JDK. Please add Mockito as an agent to your build as described in Mockito's documentation: https://javadoc.io/doc/org.mockito/mockito-core/latest/org.mockito/org/mockito/Mockito.html#0.3
++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.89 s -- in com.macro.mall.sdc.e4.CmsPrefrenceAreaInjectionTest
++[INFO] 
++[INFO] Results:
++[INFO] 
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
++[INFO] 
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.001 s]
++[INFO] mall-common ........................................ SUCCESS [  0.978 s]
++[INFO] mall-mbg ........................................... SUCCESS [  1.370 s]
++[INFO] mall-security ...................................... SUCCESS [  0.268 s]
++[INFO] mall-admin ......................................... SUCCESS [  0.710 s]
++[INFO] mall-portal ........................................ SUCCESS [  0.691 s]
++[INFO] SDC - software design and conventions .............. SUCCESS [  0.000 s]
++[INFO] SDC E4 ............................................. SUCCESS [ 11.381 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD SUCCESS
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  15.549 s
++[INFO] Finished at: 2026-11-02T08:25:34+08:00
++[INFO] ------------------------------------------------------------------------
+diff --git a/mall-admin/src/main/java/com/macro/mall/service/impl/CmsPrefrenceAreaServiceImpl.java b/mall-admin/src/main/java/com/macro/mall/service/impl/CmsPrefrenceAreaServiceImpl.java
+index 8e95af17..89655c40 100644
+--- a/mall-admin/src/main/java/com/macro/mall/service/impl/CmsPrefrenceAreaServiceImpl.java
++++ b/mall-admin/src/main/java/com/macro/mall/service/impl/CmsPrefrenceAreaServiceImpl.java
+@@ -4,7 +4,6 @@ import com.macro.mall.mapper.CmsPrefrenceAreaMapper;
+ import com.macro.mall.model.CmsPrefrenceArea;
+ import com.macro.mall.model.CmsPrefrenceAreaExample;
+ import com.macro.mall.service.CmsPrefrenceAreaService;
+-import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.stereotype.Service;
+ 
+ import java.util.List;
+@@ -15,8 +14,11 @@ import java.util.List;
+  */
+ @Service
+ public class CmsPrefrenceAreaServiceImpl implements CmsPrefrenceAreaService {
+-    @Autowired
+-    private CmsPrefrenceAreaMapper prefrenceAreaMapper;
++    private final CmsPrefrenceAreaMapper prefrenceAreaMapper;
++
++    public CmsPrefrenceAreaServiceImpl(CmsPrefrenceAreaMapper prefrenceAreaMapper) {
++        this.prefrenceAreaMapper = prefrenceAreaMapper;
++    }
+ 
+     @Override
+     public List<CmsPrefrenceArea> listAll() {

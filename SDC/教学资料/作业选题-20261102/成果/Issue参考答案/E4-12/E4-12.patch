@@ -1,0 +1,487 @@
+diff --git a/SDC/E4/pom.xml b/SDC/E4/pom.xml
+index 865bae29..0f6f7924 100644
+--- a/SDC/E4/pom.xml
++++ b/SDC/E4/pom.xml
+@@ -3,5 +3,8 @@
+   <modelVersion>4.0.0</modelVersion>
+   <parent><groupId>com.macro.mall</groupId><artifactId>sdc</artifactId><version>1.0-SNAPSHOT</version></parent>
+   <artifactId>sdc-e4</artifactId><name>SDC E4</name>
+-  <dependencies><dependency><groupId>com.macro.mall</groupId><artifactId>mall-portal</artifactId><version>${project.version}</version><scope>test</scope></dependency></dependencies>
++  <dependencies>
++    <dependency><groupId>com.macro.mall</groupId><artifactId>mall-portal</artifactId><version>${project.version}</version><scope>test</scope></dependency>
++    <dependency><groupId>com.macro.mall</groupId><artifactId>mall-admin</artifactId><version>${project.version}</version><scope>test</scope></dependency>
++  </dependencies>
+ </project>
+diff --git a/SDC/E4/src/test/java/com/macro/mall/sdc/e4/BrandTransactionTest.java b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/BrandTransactionTest.java
+new file mode 100644
+index 00000000..fc6242dc
+--- /dev/null
++++ b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/BrandTransactionTest.java
+@@ -0,0 +1,88 @@
++package com.macro.mall.sdc.e4;
++
++import com.macro.mall.mapper.SmsHomeBrandMapper;
++import com.macro.mall.model.SmsHomeBrand;
++import com.macro.mall.service.SmsHomeBrandService;
++import com.macro.mall.service.impl.SmsHomeBrandServiceImpl;
++import org.junit.jupiter.api.Test;
++import org.springframework.aop.support.AopUtils;
++import org.springframework.context.annotation.AnnotationConfigApplicationContext;
++import org.springframework.context.annotation.Configuration;
++import org.springframework.test.util.ReflectionTestUtils;
++import org.springframework.transaction.PlatformTransactionManager;
++import org.springframework.transaction.annotation.EnableTransactionManagement;
++import org.springframework.transaction.support.SimpleTransactionStatus;
++import java.util.Arrays;
++import static org.junit.jupiter.api.Assertions.*;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.*;
++
++class BrandTransactionTest {
++    interface SelfCallingService extends SmsHomeBrandService {
++        int callCreateInternally();
++    }
++
++    static class SelfCallingFixture extends SmsHomeBrandServiceImpl implements SelfCallingService {
++        public int callCreateInternally() {
++            return create(Arrays.asList(new SmsHomeBrand()));
++        }
++    }
++
++    @Configuration
++    @EnableTransactionManagement
++    static class Config {}
++
++    @Test void selfCallDoesNotGoThroughTransactionProxy() {
++        SmsHomeBrandMapper mapper = mock(SmsHomeBrandMapper.class);
++        PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
++        when(tx.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
++        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
++            context.register(Config.class, SelfCallingFixture.class);
++            context.registerBean(SmsHomeBrandMapper.class, () -> mapper);
++            context.registerBean(PlatformTransactionManager.class, () -> tx);
++            context.refresh();
++            SelfCallingService service = context.getBean(SelfCallingService.class);
++            assertTrue(AopUtils.isAopProxy(service));
++            assertEquals(1, service.callCreateInternally());
++            verifyNoInteractions(tx);
++            assertEquals(1, service.create(Arrays.asList(new SmsHomeBrand())));
++            verify(tx).commit(any());
++        }
++    }
++
++    @Test void proxyCommitsAndRollsBackButDirectInstanceBypassesAdvice() {
++        SmsHomeBrandMapper mapper = mock(SmsHomeBrandMapper.class);
++        PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
++        when(tx.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
++        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
++            context.register(Config.class, SmsHomeBrandServiceImpl.class);
++            context.registerBean(SmsHomeBrandMapper.class, () -> mapper);
++            context.registerBean(PlatformTransactionManager.class, () -> tx);
++            context.refresh();
++            SmsHomeBrandService service = context.getBean(SmsHomeBrandService.class);
++            assertTrue(AopUtils.isAopProxy(service));
++            SmsHomeBrand first = new SmsHomeBrand();
++            SmsHomeBrand second = new SmsHomeBrand();
++            assertEquals(2, service.create(Arrays.asList(first, second)));
++            assertEquals(1, first.getRecommendStatus());
++            assertEquals(0, first.getSort());
++            verify(mapper, times(2)).insert(any());
++            verify(tx).commit(any());
++            verify(tx, never()).rollback(any());
++
++            reset(mapper, tx);
++            when(tx.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
++            when(mapper.insert(any())).thenReturn(1).thenThrow(new IllegalStateException("insert failed"));
++            assertThrows(IllegalStateException.class,
++                    () -> service.create(Arrays.asList(new SmsHomeBrand(), new SmsHomeBrand())));
++            verify(tx).rollback(any());
++            verify(tx, never()).commit(any());
++
++            reset(mapper, tx);
++            SmsHomeBrandServiceImpl direct = new SmsHomeBrandServiceImpl();
++            ReflectionTestUtils.setField(direct, "homeBrandMapper", mapper);
++            assertEquals(1, direct.create(Arrays.asList(new SmsHomeBrand())));
++            verifyNoInteractions(tx);
++        }
++    }
++}
+diff --git a/SDC/answers/E4-12/E4-12.patch b/SDC/answers/E4-12/E4-12.patch
+new file mode 100644
+index 00000000..97e20b3e
+--- /dev/null
++++ b/SDC/answers/E4-12/E4-12.patch
+@@ -0,0 +1,108 @@
++diff --git a/SDC/E4/pom.xml b/SDC/E4/pom.xml
++index 865bae29..0f6f7924 100644
++--- a/SDC/E4/pom.xml
+++++ b/SDC/E4/pom.xml
++@@ -3,5 +3,8 @@
++   <modelVersion>4.0.0</modelVersion>
++   <parent><groupId>com.macro.mall</groupId><artifactId>sdc</artifactId><version>1.0-SNAPSHOT</version></parent>
++   <artifactId>sdc-e4</artifactId><name>SDC E4</name>
++-  <dependencies><dependency><groupId>com.macro.mall</groupId><artifactId>mall-portal</artifactId><version>${project.version}</version><scope>test</scope></dependency></dependencies>
+++  <dependencies>
+++    <dependency><groupId>com.macro.mall</groupId><artifactId>mall-portal</artifactId><version>${project.version}</version><scope>test</scope></dependency>
+++    <dependency><groupId>com.macro.mall</groupId><artifactId>mall-admin</artifactId><version>${project.version}</version><scope>test</scope></dependency>
+++  </dependencies>
++ </project>
++diff --git a/SDC/E4/src/test/java/com/macro/mall/sdc/e4/BrandTransactionTest.java b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/BrandTransactionTest.java
++new file mode 100644
++index 00000000..fc6242dc
++--- /dev/null
+++++ b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/BrandTransactionTest.java
++@@ -0,0 +1,88 @@
+++package com.macro.mall.sdc.e4;
+++
+++import com.macro.mall.mapper.SmsHomeBrandMapper;
+++import com.macro.mall.model.SmsHomeBrand;
+++import com.macro.mall.service.SmsHomeBrandService;
+++import com.macro.mall.service.impl.SmsHomeBrandServiceImpl;
+++import org.junit.jupiter.api.Test;
+++import org.springframework.aop.support.AopUtils;
+++import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+++import org.springframework.context.annotation.Configuration;
+++import org.springframework.test.util.ReflectionTestUtils;
+++import org.springframework.transaction.PlatformTransactionManager;
+++import org.springframework.transaction.annotation.EnableTransactionManagement;
+++import org.springframework.transaction.support.SimpleTransactionStatus;
+++import java.util.Arrays;
+++import static org.junit.jupiter.api.Assertions.*;
+++import static org.mockito.ArgumentMatchers.any;
+++import static org.mockito.Mockito.*;
+++
+++class BrandTransactionTest {
+++    interface SelfCallingService extends SmsHomeBrandService {
+++        int callCreateInternally();
+++    }
+++
+++    static class SelfCallingFixture extends SmsHomeBrandServiceImpl implements SelfCallingService {
+++        public int callCreateInternally() {
+++            return create(Arrays.asList(new SmsHomeBrand()));
+++        }
+++    }
+++
+++    @Configuration
+++    @EnableTransactionManagement
+++    static class Config {}
+++
+++    @Test void selfCallDoesNotGoThroughTransactionProxy() {
+++        SmsHomeBrandMapper mapper = mock(SmsHomeBrandMapper.class);
+++        PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
+++        when(tx.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
+++        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+++            context.register(Config.class, SelfCallingFixture.class);
+++            context.registerBean(SmsHomeBrandMapper.class, () -> mapper);
+++            context.registerBean(PlatformTransactionManager.class, () -> tx);
+++            context.refresh();
+++            SelfCallingService service = context.getBean(SelfCallingService.class);
+++            assertTrue(AopUtils.isAopProxy(service));
+++            assertEquals(1, service.callCreateInternally());
+++            verifyNoInteractions(tx);
+++            assertEquals(1, service.create(Arrays.asList(new SmsHomeBrand())));
+++            verify(tx).commit(any());
+++        }
+++    }
+++
+++    @Test void proxyCommitsAndRollsBackButDirectInstanceBypassesAdvice() {
+++        SmsHomeBrandMapper mapper = mock(SmsHomeBrandMapper.class);
+++        PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
+++        when(tx.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
+++        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+++            context.register(Config.class, SmsHomeBrandServiceImpl.class);
+++            context.registerBean(SmsHomeBrandMapper.class, () -> mapper);
+++            context.registerBean(PlatformTransactionManager.class, () -> tx);
+++            context.refresh();
+++            SmsHomeBrandService service = context.getBean(SmsHomeBrandService.class);
+++            assertTrue(AopUtils.isAopProxy(service));
+++            SmsHomeBrand first = new SmsHomeBrand();
+++            SmsHomeBrand second = new SmsHomeBrand();
+++            assertEquals(2, service.create(Arrays.asList(first, second)));
+++            assertEquals(1, first.getRecommendStatus());
+++            assertEquals(0, first.getSort());
+++            verify(mapper, times(2)).insert(any());
+++            verify(tx).commit(any());
+++            verify(tx, never()).rollback(any());
+++
+++            reset(mapper, tx);
+++            when(tx.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
+++            when(mapper.insert(any())).thenReturn(1).thenThrow(new IllegalStateException("insert failed"));
+++            assertThrows(IllegalStateException.class,
+++                    () -> service.create(Arrays.asList(new SmsHomeBrand(), new SmsHomeBrand())));
+++            verify(tx).rollback(any());
+++            verify(tx, never()).commit(any());
+++
+++            reset(mapper, tx);
+++            SmsHomeBrandServiceImpl direct = new SmsHomeBrandServiceImpl();
+++            ReflectionTestUtils.setField(direct, "homeBrandMapper", mapper);
+++            assertEquals(1, direct.create(Arrays.asList(new SmsHomeBrand())));
+++            verifyNoInteractions(tx);
+++        }
+++    }
+++}
+diff --git a/SDC/answers/E4-12/ISSUE.md b/SDC/answers/E4-12/ISSUE.md
+new file mode 100644
+index 00000000..d7c967dd
+--- /dev/null
++++ b/SDC/answers/E4-12/ISSUE.md
+@@ -0,0 +1,21 @@
++# Issue 草稿：验证首页品牌新增的 AOP 事务代理
++
++## 背景
++
++`SmsHomeBrandService#create` 声明了 `@Transactional`，实现类逐条调用 `SmsHomeBrandMapper.insert`。仅看到注解无法说明运行时调用是否经过 Spring 代理，也不能据此推断异常时数据库已回滚。
++
++## 目标
++
++在 E4 测试模块加入最小机制验证，观察 Spring 容器代理的事务动作，并对照直接构造对象调用。
++
++## 验收标准
++
++- 测试确认容器取得的 `SmsHomeBrandService` 是 AOP 代理。
++- 正常新增时 mapper 写入两次，事务管理器收到提交且未收到回滚。
++- 第二次 mapper 写入抛出运行时异常时，异常向调用方传播，事务管理器收到回滚且未收到提交。
++- 直接构造实现类并注入 mapper 后调用新增，不与事务管理器交互。
++- 变更仅限 E4 的 test-scope 依赖和测试文件，不修改业务实现、事务传播级别、回滚规则或写入顺序。
++
++## 验证边界
++
++Mapper 与事务管理器均为替身；结果只证明代理触发了对应事务动作，不证明真实数据库状态回滚。自调用示例是测试专用子类夹具，不表示生产实现存在自调用问题。
+diff --git a/SDC/answers/E4-12/README.md b/SDC/answers/E4-12/README.md
+new file mode 100644
+index 00000000..c56492a6
+--- /dev/null
++++ b/SDC/answers/E4-12/README.md
+@@ -0,0 +1,29 @@
++本题独立参考分支：`refs/heads/exp/e4-12`。仅作学习参考，不向 mall 主线创建或合并 PR。
++
++# E4-12 AOP 事务代理参考答案
++
++## 变更
++
++在 `SDC/E4/pom.xml` 增加 `mall-admin` 的 test-scope 依赖，并将 `BrandTransactionTest.java` 加入 E4 测试模块。产品源码、事务传播级别、回滚规则和业务顺序均不改。可在 mall 仓库根目录应用 `E4-12.patch`：
++
++```sh
++rtk git apply '/path/to/E4-12.patch'
++```
++
++## 验证
++
++2026-11-02 在隔离 worktree `/private/tmp/e4-12-aop-fresh` 验证。`HEAD` 与 `base` 均为 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`，detached HEAD；原工作目录未改。
++
++环境为 macOS arm64、Maven 3.9.16、Homebrew OpenJDK 26.0.1。该会话没有默认 `JAVA_HOME`，所以测试调用显式设置为 `/opt/homebrew/opt/java/libexec/openjdk.jdk/Contents/Home`。依赖使用本地缓存，执行命令：
++
++```sh
++rtk /usr/bin/env JAVA_HOME=/opt/homebrew/opt/java/libexec/openjdk.jdk/Contents/Home mvn -o -pl SDC/E4 -am -Dtest=BrandTransactionTest -Dsurefire.failIfNoSpecifiedTests=false -DskipTests=false -Dmaven.compiler.proc=full test
++```
++
++结果：`Tests run: 2, Failures: 0, Errors: 0, Skipped: 0`，`BUILD SUCCESS`。完整输出见 [fresh-test.log](fresh-test.log)。
++
++## 证据边界
++
++测试从 Spring 容器取得代理，正常路径验证事务管理器收到提交；第二次 Mapper 写入抛出运行时异常时，验证异常传播、收到回滚且没有提交。直接构造的实现对象调用同一业务方法，不经过代理，因此事务管理器无交互。
++
++测试替身只证明 Spring 发出了提交或回滚动作，不证明真实数据库中的数据已提交或回滚，也不覆盖完整应用装配。额外的自调用用测试子类构造对照情境，用于说明代理边界；它不是生产源码有自调用缺陷的证据。
+diff --git a/SDC/answers/E4-12/fresh-test.log b/SDC/answers/E4-12/fresh-test.log
+new file mode 100644
+index 00000000..ca7f76bf
+--- /dev/null
++++ b/SDC/answers/E4-12/fresh-test.log
+@@ -0,0 +1,197 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-admin                                                         [jar]
++[INFO] mall-portal                                                        [jar]
++[INFO] SDC - software design and conventions                              [pom]
++[INFO] SDC E4                                                             [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/8]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/8]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Recompiling the module because of changed source code.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
++WARNING: sun.misc.Unsafe::objectFieldOffset has been called by lombok.permit.Permit
++WARNING: Please consider reporting this to the maintainers of class lombok.permit.Permit
++WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-12-aop-fresh/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/8]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 230 source files with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-12-aop-fresh/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/8]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-12-aop-fresh/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/e4-12-aop-fresh/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++[INFO] /private/tmp/e4-12-aop-fresh/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 某些输入文件使用或覆盖了已过时的 API。
++[INFO] /private/tmp/e4-12-aop-fresh/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-12-aop-fresh/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-admin >----------------------
++[INFO] Building mall-admin 1.0-SNAPSHOT                                   [5/8]
++[INFO]   from mall-admin/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-admin ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 23 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-admin ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 153 source files with javac [debug parameters release 17] to target/classes
++[WARNING] /private/tmp/e4-12-aop-fresh/mall-admin/src/main/java/com/macro/mall/dto/PmsProductParam.java:[15,1] Generating equals/hashCode implementation but without a call to superclass, even though this class does not extend java.lang.Object. If this is intentional, add '@EqualsAndHashCode(callSuper=false)' to your type.
++[INFO] /private/tmp/e4-12-aop-fresh/mall-admin/src/main/java/com/macro/mall/config/MallSecurityConfig.java: 某些输入文件使用或覆盖了已过时的 API。
++[INFO] /private/tmp/e4-12-aop-fresh/mall-admin/src/main/java/com/macro/mall/config/MallSecurityConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] /private/tmp/e4-12-aop-fresh/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java: /private/tmp/e4-12-aop-fresh/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java使用了未经检查或不安全的操作。
++[INFO] /private/tmp/e4-12-aop-fresh/mall-admin/src/main/java/com/macro/mall/service/impl/UmsAdminCacheServiceImpl.java: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-admin ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-12-aop-fresh/mall-admin/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-admin ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-admin ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [6/8]
++[INFO]   from mall-portal/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 5 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 94 source files with javac [debug parameters release 17] to target/classes
++[INFO] /private/tmp/e4-12-aop-fresh/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: /private/tmp/e4-12-aop-fresh/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java使用或覆盖了已过时的 API。
++[INFO] /private/tmp/e4-12-aop-fresh/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-12-aop-fresh/mall-portal/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
++[INFO] 
++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [7/8]
++[INFO]   from SDC/pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] -----------------------< com.macro.mall:sdc-e4 >------------------------
++[INFO] Building SDC E4 1.0-SNAPSHOT                                       [8/8]
++[INFO]   from SDC/E4/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e4 ---
++[INFO] skip non existing resourceDirectory /private/tmp/e4-12-aop-fresh/SDC/E4/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/e4-12-aop-fresh/SDC/E4/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e4 ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e4 ---
++[INFO] Copying 1 resource from src/test/resources to target/test-classes
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e4 ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e4 ---
++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
++[INFO] 
++[INFO] -------------------------------------------------------
++[INFO]  T E S T S
++[INFO] -------------------------------------------------------
++[INFO] Running com.macro.mall.sdc.e4.BrandTransactionTest
++Mockito is currently self-attaching to enable the inline-mock-maker. This will no longer work in future releases of the JDK. Please add Mockito as an agent to your build as described in Mockito's documentation: https://javadoc.io/doc/org.mockito/mockito-core/latest/org.mockito/org/mockito/Mockito.html#0.3
++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
++[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.94 s -- in com.macro.mall.sdc.e4.BrandTransactionTest
++[INFO] 
++[INFO] Results:
++[INFO] 
++[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
++[INFO] 
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.001 s]
++[INFO] mall-common ........................................ SUCCESS [  0.888 s]
++[INFO] mall-mbg ........................................... SUCCESS [  1.264 s]
++[INFO] mall-security ...................................... SUCCESS [  0.248 s]
++[INFO] mall-admin ......................................... SUCCESS [  0.661 s]
++[INFO] mall-portal ........................................ SUCCESS [  0.657 s]
++[INFO] SDC - software design and conventions .............. SUCCESS [  0.000 s]
++[INFO] SDC E4 ............................................. SUCCESS [ 11.449 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD SUCCESS
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  15.308 s
++[INFO] Finished at: 2026-11-02T08:29:25+08:00
++[INFO] ------------------------------------------------------------------------

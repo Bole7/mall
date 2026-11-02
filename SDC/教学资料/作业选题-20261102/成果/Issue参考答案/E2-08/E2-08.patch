@@ -1,0 +1,788 @@
+diff --git a/SDC/E2/answers/E2-08/ISSUE.md b/SDC/E2/answers/E2-08/ISSUE.md
+new file mode 100644
+index 00000000..a282504f
+--- /dev/null
++++ b/SDC/E2/answers/E2-08/ISSUE.md
+@@ -0,0 +1,16 @@
++## 靶点
++
++portal 搜索、品牌商品列表、首页推荐商品各自写“已上架且未删除”；首页新品和人气推荐 SQL 只过滤上架；search 导入也写了一份，商品详情按主键读取。分析 DRY 和逻辑归属，用开发视图说明各模块依赖。
++
++## 验收准则
++
++- portal 三个 Java 入口共用一处可见条件；以特征测试记录改前改后的查询条件。
++- 首页 SQL 是否补删除条件属于行为修正；先记录旧行为并说明理由，用实际 SQL 验证改前和改后。
++- 说明新增一种不可见情形时改前、改后修改位置数，并区分 SQL 与跨模块边界。
++- 不改表结构、生成代码和公开接口；search 只讨论，不要求改实现；不新增审核规则。
++
++## 参考答案
++
++示例分支 [`exp/e2-08`](https://github.com/meng004/mall/tree/exp/e2-08)；参考实现以 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8` 为基线，原任务历史基线 `baseline-dcaa93b3` 保留作来源记录。完整说明、复现命令、边界和日志见[参考答案](https://github.com/meng004/mall/blob/exp/e2-08/SDC/E2/answers/E2-08/README.md)。
++
++三个 Java 入口条件测试在基线及改后均通过。基线首页 SQL 的旧行为特征测试通过，新规则测试对新品和人气各报期望 `[1]`、实际 `[1, 2]`；改后两测试通过，0 failures/errors/skips。测试用 MyBatis 和 H2 执行真实映射 SQL，未验证真实 MySQL 或 HTTP。
+diff --git a/SDC/E2/answers/E2-08/README.md b/SDC/E2/answers/E2-08/README.md
+new file mode 100644
+index 00000000..69817db8
+--- /dev/null
++++ b/SDC/E2/answers/E2-08/README.md
+@@ -0,0 +1,19 @@
++# E2-08 商品前台可见规则参考答案
++
++参考实现基线为 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`；Issue 原始任务记录的历史基线为 `baseline-dcaa93b3`，两者不是同一个基线。本示例针对前者，独立教学分支不合并。
++
++`ProductVisibilityCriteria.apply` 让 portal 搜索、品牌商品列表和首页推荐商品共用 `delete_status = 0`、`publish_status = 1`。首页新品和人气推荐两条 SQL 加删除过滤是单独的行为修正：已上架但已删除的商品不再返回。商品详情仍按主键读取；search 未改，审核状态不构成当前规则。
++
++开发视图：`portal service -> portal visibility criteria -> PmsProductExample -> database`；首页 `HomeDao -> HomeDao.xml -> database`，`search -> EsProductDao.xml -> database / search index` 独立部署。当前 helper 只消除三个 Java 调用点的重复，不能被 SQL 或独立 search 直接复用。若将来明确要求审核未通过不可见，三个 Java 条件由 3 处降到 helper 1 处；首页 SQL 两条及 search 导入 1 处仍需分别处理，共由 6 处变为 4 处。详情是否应受限需要独立需求决定，不计入上述列表查询改动数。
++
++## 复现
++
++需要 JDK 17、Maven 及 H2 2.1.214 测试依赖。项目默认跳过测试，必须显式开启：
++
++```sh
++mvn -pl mall-portal -am -DskipTests=false -Dtest=ProductVisibilityRulesTest,HomeProductVisibilitySqlTest -Dsurefire.failIfNoSpecifiedTests=false clean test
++```
++
++基线对照：在基线检出中仅复制本分支的两个测试文件及 `mall-portal/pom.xml` 的 H2 test 依赖。添加 `-De2.characterizeBaseline=true` 运行以上命令，旧行为特征测试通过，首页两查询各返回商品 `[1, 2]`；去掉此参数重新执行，新期望失败，两条查询均实际返回 `[1, 2]` 而期望 `[1]`。改后默认测试通过。证据见 `evidence/` 三份完整日志。本轮执行使用本地离线缓存 `-o -Dmaven.repo.local=/private/tmp/m2`，日志记录具体命令环境；其他机器可联网解析依赖。
++
++服务测试直接调用三个服务，捕获各自传给 Mapper 的查询条件；它验证两项可见条件存在，并不证明所有商品结果、分页或所有可选筛选组合完全一致。SQL 测试用 MyBatis 读取真实 XML 并在 H2 MySQL 模式执行；没有测试真实 MySQL、HTTP、搜索索引或详情。测试没有把源码字符串当作 SQL 执行。
+diff --git a/SDC/E2/answers/E2-08/evidence/after-fix.log b/SDC/E2/answers/E2-08/evidence/after-fix.log
+new file mode 100644
+index 00000000..64c1915c
+--- /dev/null
++++ b/SDC/E2/answers/E2-08/evidence/after-fix.log
+@@ -0,0 +1,149 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-portal                                                        [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/5]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall ---
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/5]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall-common ---
++[INFO] Deleting /private/tmp/mall-e2-08/mall-common/target
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Recompiling the module because of changed source code.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-08/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/5]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall-mbg ---
++[INFO] Deleting /private/tmp/mall-e2-08/mall-mbg/target
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 230 source files with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-08/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/5]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall-security ---
++[INFO] Deleting /private/tmp/mall-e2-08/mall-security/target
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-08/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-08/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++[INFO] /private/tmp/mall-e2-08/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 某些输入文件使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e2-08/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-08/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [5/5]
++[INFO]   from mall-portal/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall-portal ---
++[INFO] Deleting /private/tmp/mall-e2-08/mall-portal/target
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 5 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 95 source files with javac [debug parameters release 17] to target/classes
++[INFO] /private/tmp/mall-e2-08/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: /private/tmp/mall-e2-08/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e2-08/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-08/mall-portal/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 4 source files with javac [debug parameters release 17] to target/test-classes
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
++[INFO] 
++[INFO] -------------------------------------------------------
++[INFO]  T E S T S
++[INFO] -------------------------------------------------------
++[INFO] Running com.macro.mall.portal.ProductVisibilityRulesTest
++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.053 s -- in com.macro.mall.portal.ProductVisibilityRulesTest
++[INFO] Running com.macro.mall.portal.HomeProductVisibilitySqlTest
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.164 s -- in com.macro.mall.portal.HomeProductVisibilitySqlTest
++[INFO] 
++[INFO] Results:
++[INFO] 
++[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
++[INFO] 
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.032 s]
++[INFO] mall-common ........................................ SUCCESS [  0.902 s]
++[INFO] mall-mbg ........................................... SUCCESS [  1.811 s]
++[INFO] mall-security ...................................... SUCCESS [  0.252 s]
++[INFO] mall-portal ........................................ SUCCESS [  1.423 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD SUCCESS
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  4.557 s
++[INFO] Finished at: 2026-11-02T12:28:33+08:00
++[INFO] ------------------------------------------------------------------------
+diff --git a/SDC/E2/answers/E2-08/evidence/before-characterization.log b/SDC/E2/answers/E2-08/evidence/before-characterization.log
+new file mode 100644
+index 00000000..035ec5ec
+--- /dev/null
++++ b/SDC/E2/answers/E2-08/evidence/before-characterization.log
+@@ -0,0 +1,149 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-portal                                                        [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/5]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall ---
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/5]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall-common ---
++[INFO] Deleting /private/tmp/mall-e2-08-base/mall-common/target
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Recompiling the module because of changed source code.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-08-base/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/5]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall-mbg ---
++[INFO] Deleting /private/tmp/mall-e2-08-base/mall-mbg/target
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 230 source files with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-08-base/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/5]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall-security ---
++[INFO] Deleting /private/tmp/mall-e2-08-base/mall-security/target
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-08-base/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-08-base/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++[INFO] /private/tmp/mall-e2-08-base/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 某些输入文件使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e2-08-base/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-08-base/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [5/5]
++[INFO]   from mall-portal/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- clean:3.4.1:clean (default-clean) @ mall-portal ---
++[INFO] Deleting /private/tmp/mall-e2-08-base/mall-portal/target
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 5 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 94 source files with javac [debug parameters release 17] to target/classes
++[INFO] /private/tmp/mall-e2-08-base/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: /private/tmp/mall-e2-08-base/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e2-08-base/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-08-base/mall-portal/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 4 source files with javac [debug parameters release 17] to target/test-classes
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
++[INFO] 
++[INFO] -------------------------------------------------------
++[INFO]  T E S T S
++[INFO] -------------------------------------------------------
++[INFO] Running com.macro.mall.portal.ProductVisibilityRulesTest
++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.052 s -- in com.macro.mall.portal.ProductVisibilityRulesTest
++[INFO] Running com.macro.mall.portal.HomeProductVisibilitySqlTest
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.165 s -- in com.macro.mall.portal.HomeProductVisibilitySqlTest
++[INFO] 
++[INFO] Results:
++[INFO] 
++[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
++[INFO] 
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.036 s]
++[INFO] mall-common ........................................ SUCCESS [  0.964 s]
++[INFO] mall-mbg ........................................... SUCCESS [  1.448 s]
++[INFO] mall-security ...................................... SUCCESS [  0.294 s]
++[INFO] mall-portal ........................................ SUCCESS [  1.375 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD SUCCESS
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  4.278 s
++[INFO] Finished at: 2026-11-02T12:27:44+08:00
++[INFO] ------------------------------------------------------------------------
+diff --git a/SDC/E2/answers/E2-08/evidence/before-fix.log b/SDC/E2/answers/E2-08/evidence/before-fix.log
+new file mode 100644
+index 00000000..3f060e51
+--- /dev/null
++++ b/SDC/E2/answers/E2-08/evidence/before-fix.log
+@@ -0,0 +1,193 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-portal                                                        [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/5]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/5]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-08-base/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/5]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-08-base/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/5]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-08-base/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-08-base/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-08-base/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] No tests to run.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [5/5]
++[INFO]   from mall-portal/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 5 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e2-08-base/mall-portal/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
++[INFO] 
++[INFO] -------------------------------------------------------
++[INFO]  T E S T S
++[INFO] -------------------------------------------------------
++[INFO] Running com.macro.mall.portal.ProductVisibilityRulesTest
++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.044 s -- in com.macro.mall.portal.ProductVisibilityRulesTest
++[INFO] Running com.macro.mall.portal.HomeProductVisibilitySqlTest
++[ERROR] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.129 s <<< FAILURE! -- in com.macro.mall.portal.HomeProductVisibilitySqlTest
++[ERROR] com.macro.mall.portal.HomeProductVisibilitySqlTest.homeQueriesExcludeDeletedPublishedProducts -- Time elapsed: 0.128 s <<< FAILURE!
++org.opentest4j.MultipleFailuresError: 
++Multiple Failures (2 failures)
++	org.opentest4j.AssertionFailedError: new products ==> expected: <[1]> but was: <[1, 2]>
++	org.opentest4j.AssertionFailedError: hot products ==> expected: <[1]> but was: <[1, 2]>
++	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:80)
++	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:44)
++	at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:38)
++	at org.junit.jupiter.api.Assertions.assertAll(Assertions.java:2944)
++	at com.macro.mall.portal.HomeProductVisibilitySqlTest.homeQueriesExcludeDeletedPublishedProducts(HomeProductVisibilitySqlTest.java:41)
++	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
++	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
++	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
++	Suppressed: org.opentest4j.AssertionFailedError: new products ==> expected: <[1]> but was: <[1, 2]>
++		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
++		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
++		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
++		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
++		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
++		at com.macro.mall.portal.HomeProductVisibilitySqlTest.lambda$homeQueriesExcludeDeletedPublishedProducts$0(HomeProductVisibilitySqlTest.java:42)
++		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
++		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
++		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:992)
++		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
++		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
++		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
++		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
++		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
++		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
++		... 7 more
++	Suppressed: org.opentest4j.AssertionFailedError: hot products ==> expected: <[1]> but was: <[1, 2]>
++		at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
++		at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
++		at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
++		at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
++		at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
++		at com.macro.mall.portal.HomeProductVisibilitySqlTest.lambda$homeQueriesExcludeDeletedPublishedProducts$1(HomeProductVisibilitySqlTest.java:43)
++		at org.junit.jupiter.api.AssertAll.lambda$assertAll$0(AssertAll.java:68)
++		at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
++		at java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:992)
++		at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)
++		at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)
++		at java.base/java.util.stream.ReduceOps$ReduceOp.evaluateSequential(ReduceOps.java:921)
++		at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)
++		at java.base/java.util.stream.ReferencePipeline.collect(ReferencePipeline.java:682)
++		at org.junit.jupiter.api.AssertAll.assertAll(AssertAll.java:77)
++		... 7 more
++
++[INFO] 
++[INFO] Results:
++[INFO] 
++[ERROR] Failures: 
++[ERROR]   HomeProductVisibilitySqlTest.homeQueriesExcludeDeletedPublishedProducts:41 Multiple Failures (2 failures)
++	org.opentest4j.AssertionFailedError: new products ==> expected: <[1]> but was: <[1, 2]>
++	org.opentest4j.AssertionFailedError: hot products ==> expected: <[1]> but was: <[1, 2]>
++[INFO] 
++[ERROR] Tests run: 2, Failures: 1, Errors: 0, Skipped: 0
++[INFO] 
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.000 s]
++[INFO] mall-common ........................................ SUCCESS [  0.255 s]
++[INFO] mall-mbg ........................................... SUCCESS [  0.076 s]
++[INFO] mall-security ...................................... SUCCESS [  0.018 s]
++[INFO] mall-portal ........................................ FAILURE [  0.472 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD FAILURE
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  0.946 s
++[INFO] Finished at: 2026-11-02T12:27:57+08:00
++[INFO] ------------------------------------------------------------------------
++[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.5.5:test (default-test) on project mall-portal: There are test failures.
++[ERROR] 
++[ERROR] See /private/tmp/mall-e2-08-base/mall-portal/target/surefire-reports for the individual test results.
++[ERROR] See dump files (if any exist) [date].dump, [date]-jvmRun[N].dump and [date].dumpstream.
++[ERROR] -> [Help 1]
++[ERROR] 
++[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
++[ERROR] Re-run Maven using the -X switch to enable full debug logging.
++[ERROR] 
++[ERROR] For more information about the errors and possible solutions, please read the following articles:
++[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException
++[ERROR] 
++[ERROR] After correcting the problems, you can resume the build with the command
++[ERROR]   mvn <args> -rf :mall-portal
+diff --git a/mall-portal/pom.xml b/mall-portal/pom.xml
+index 2c9f1b6e..a81529e5 100644
+--- a/mall-portal/pom.xml
++++ b/mall-portal/pom.xml
+@@ -18,6 +18,12 @@
+     </parent>
+ 
+     <dependencies>
++        <dependency>
++            <groupId>com.h2database</groupId>
++            <artifactId>h2</artifactId>
++            <version>2.1.214</version>
++            <scope>test</scope>
++        </dependency>
+         <dependency>
+             <groupId>dev.langchain4j</groupId>
+             <artifactId>langchain4j-open-ai</artifactId>
+diff --git a/mall-portal/src/main/java/com/macro/mall/portal/service/impl/HomeServiceImpl.java b/mall-portal/src/main/java/com/macro/mall/portal/service/impl/HomeServiceImpl.java
+index 0f98a0a9..9b650365 100644
+--- a/mall-portal/src/main/java/com/macro/mall/portal/service/impl/HomeServiceImpl.java
++++ b/mall-portal/src/main/java/com/macro/mall/portal/service/impl/HomeServiceImpl.java
+@@ -60,9 +60,7 @@ public class HomeServiceImpl implements HomeService {
+         // TODO: 2019/1/29 暂时默认推荐所有商品
+         PageHelper.startPage(pageNum,pageSize);
+         PmsProductExample example = new PmsProductExample();
+-        example.createCriteria()
+-                .andDeleteStatusEqualTo(0)
+-                .andPublishStatusEqualTo(1);
++        ProductVisibilityCriteria.apply(example.createCriteria());
+         return productMapper.selectByExample(example);
+     }
+ 
+diff --git a/mall-portal/src/main/java/com/macro/mall/portal/service/impl/PmsPortalBrandServiceImpl.java b/mall-portal/src/main/java/com/macro/mall/portal/service/impl/PmsPortalBrandServiceImpl.java
+index 0af65de6..e791f972 100644
+--- a/mall-portal/src/main/java/com/macro/mall/portal/service/impl/PmsPortalBrandServiceImpl.java
++++ b/mall-portal/src/main/java/com/macro/mall/portal/service/impl/PmsPortalBrandServiceImpl.java
+@@ -42,8 +42,7 @@ public class PmsPortalBrandServiceImpl implements PmsPortalBrandService {
+     public CommonPage<PmsProduct> productList(Long brandId, Integer pageNum, Integer pageSize) {
+         PageHelper.startPage(pageNum,pageSize);
+         PmsProductExample example = new PmsProductExample();
+-        example.createCriteria().andDeleteStatusEqualTo(0)
+-                .andPublishStatusEqualTo(1)
++        ProductVisibilityCriteria.apply(example.createCriteria())
+                 .andBrandIdEqualTo(brandId);
+         List<PmsProduct> productList = productMapper.selectByExample(example);
+         return CommonPage.restPage(productList);
+diff --git a/mall-portal/src/main/java/com/macro/mall/portal/service/impl/PmsPortalProductServiceImpl.java b/mall-portal/src/main/java/com/macro/mall/portal/service/impl/PmsPortalProductServiceImpl.java
+index f28611d3..fc256253 100644
+--- a/mall-portal/src/main/java/com/macro/mall/portal/service/impl/PmsPortalProductServiceImpl.java
++++ b/mall-portal/src/main/java/com/macro/mall/portal/service/impl/PmsPortalProductServiceImpl.java
+@@ -56,8 +56,7 @@ public class PmsPortalProductServiceImpl implements PmsPortalProductService {
+                                     Integer pageSize, Integer sort, ProductQueryCriteria filters) {
+         PmsProductExample example = new PmsProductExample();
+         PmsProductExample.Criteria criteria = example.createCriteria();
+-        criteria.andDeleteStatusEqualTo(0);
+-        criteria.andPublishStatusEqualTo(1);
++        ProductVisibilityCriteria.apply(criteria);
+         if (StrUtil.isNotEmpty(keyword)) {
+             // The structured query promises a literal substring; keep the old API's LIKE semantics.
+             String pattern = filters == null ? keyword
+diff --git a/mall-portal/src/main/java/com/macro/mall/portal/service/impl/ProductVisibilityCriteria.java b/mall-portal/src/main/java/com/macro/mall/portal/service/impl/ProductVisibilityCriteria.java
+new file mode 100644
+index 00000000..5f292b15
+--- /dev/null
++++ b/mall-portal/src/main/java/com/macro/mall/portal/service/impl/ProductVisibilityCriteria.java
+@@ -0,0 +1,12 @@
++package com.macro.mall.portal.service.impl;
++
++import com.macro.mall.model.PmsProductExample;
++
++final class ProductVisibilityCriteria {
++    private ProductVisibilityCriteria() {
++    }
++
++    static PmsProductExample.Criteria apply(PmsProductExample.Criteria criteria) {
++        return criteria.andDeleteStatusEqualTo(0).andPublishStatusEqualTo(1);
++    }
++}
+diff --git a/mall-portal/src/main/resources/dao/HomeDao.xml b/mall-portal/src/main/resources/dao/HomeDao.xml
+index 1b2b840e..a5099813 100644
+--- a/mall-portal/src/main/resources/dao/HomeDao.xml
++++ b/mall-portal/src/main/resources/dao/HomeDao.xml
+@@ -43,6 +43,7 @@
+         WHERE
+             hp.recommend_status = 1
+             AND p.publish_status = 1
++            AND p.delete_status = 0
+         ORDER BY
+             hp.sort DESC
+         LIMIT #{offset}, #{limit};
+@@ -56,6 +57,7 @@
+         WHERE
+             hp.recommend_status = 1
+             AND p.publish_status = 1
++            AND p.delete_status = 0
+         ORDER BY
+             hp.sort DESC
+         LIMIT #{offset}, #{limit};
+@@ -73,4 +75,4 @@
+             hs.sort DESC
+         LIMIT #{offset}, #{limit};
+     </select>
+-</mapper>
+\ No newline at end of file
++</mapper>
+diff --git a/mall-portal/src/test/java/com/macro/mall/portal/HomeProductVisibilitySqlTest.java b/mall-portal/src/test/java/com/macro/mall/portal/HomeProductVisibilitySqlTest.java
+new file mode 100644
+index 00000000..dce0154f
+--- /dev/null
++++ b/mall-portal/src/test/java/com/macro/mall/portal/HomeProductVisibilitySqlTest.java
+@@ -0,0 +1,58 @@
++package com.macro.mall.portal;
++
++import com.macro.mall.portal.dao.HomeDao;
++import com.macro.mall.model.PmsProduct;
++import org.apache.ibatis.builder.xml.XMLMapperBuilder;
++import org.apache.ibatis.mapping.Environment;
++import org.apache.ibatis.session.Configuration;
++import org.apache.ibatis.session.SqlSession;
++import org.apache.ibatis.session.SqlSessionFactory;
++import org.apache.ibatis.session.SqlSessionFactoryBuilder;
++import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
++import org.h2.jdbcx.JdbcDataSource;
++import org.junit.jupiter.api.Test;
++
++import java.io.InputStream;
++import java.sql.Connection;
++import java.sql.Statement;
++import java.util.List;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertAll;
++
++class HomeProductVisibilitySqlTest {
++    @Test
++    void homeQueriesExcludeDeletedPublishedProducts() throws Exception {
++        JdbcDataSource dataSource = new JdbcDataSource();
++        dataSource.setURL("jdbc:h2:mem:home-products;MODE=MySQL;DB_CLOSE_DELAY=-1");
++        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
++            statement.execute("CREATE TABLE pms_product (id BIGINT PRIMARY KEY, name VARCHAR(100), publish_status INT, delete_status INT)");
++            statement.execute("CREATE TABLE sms_home_new_product (product_id BIGINT, recommend_status INT, sort INT)");
++            statement.execute("CREATE TABLE sms_home_recommend_product (product_id BIGINT, recommend_status INT, sort INT)");
++            statement.execute("INSERT INTO pms_product VALUES (1, 'visible', 1, 0), (2, 'deleted', 1, 1), (3, 'unpublished', 0, 0)");
++            statement.execute("INSERT INTO sms_home_new_product VALUES (1,1,3), (2,1,2), (3,1,1)");
++            statement.execute("INSERT INTO sms_home_recommend_product VALUES (1,1,3), (2,1,2), (3,1,1)");
++        }
++
++        SqlSessionFactory factory = sqlSessionFactory(dataSource);
++        try (SqlSession session = factory.openSession()) {
++            HomeDao homeDao = session.getMapper(HomeDao.class);
++            List<Long> expected = Boolean.getBoolean("e2.characterizeBaseline") ? List.of(1L, 2L) : List.of(1L);
++            assertAll(
++                    () -> assertEquals(expected, homeDao.getNewProductList(0, 10).stream().map(PmsProduct::getId).toList(), "new products"),
++                    () -> assertEquals(expected, homeDao.getHotProductList(0, 10).stream().map(PmsProduct::getId).toList(), "hot products"));
++        }
++    }
++
++    private SqlSessionFactory sqlSessionFactory(JdbcDataSource dataSource) throws Exception {
++        Configuration configuration = new Configuration(new Environment("test", new JdbcTransactionFactory(), dataSource));
++        for (String path : List.of("/com/macro/mall/mapper/PmsProductMapper.xml",
++                "/com/macro/mall/mapper/PmsBrandMapper.xml", "/com/macro/mall/mapper/CmsSubjectMapper.xml",
++                "/dao/HomeDao.xml")) {
++            try (InputStream xml = getClass().getResourceAsStream(path)) {
++                new XMLMapperBuilder(xml, configuration, path, configuration.getSqlFragments()).parse();
++            }
++        }
++        return new SqlSessionFactoryBuilder().build(configuration);
++    }
++}
+diff --git a/mall-portal/src/test/java/com/macro/mall/portal/ProductVisibilityRulesTest.java b/mall-portal/src/test/java/com/macro/mall/portal/ProductVisibilityRulesTest.java
+new file mode 100644
+index 00000000..fe2dbf37
+--- /dev/null
++++ b/mall-portal/src/test/java/com/macro/mall/portal/ProductVisibilityRulesTest.java
+@@ -0,0 +1,57 @@
++package com.macro.mall.portal;
++
++import com.macro.mall.mapper.PmsProductMapper;
++import com.macro.mall.model.PmsProductExample;
++import com.macro.mall.portal.service.impl.HomeServiceImpl;
++import com.macro.mall.portal.service.impl.PmsPortalBrandServiceImpl;
++import com.macro.mall.portal.service.impl.PmsPortalProductServiceImpl;
++import org.junit.jupiter.api.Test;
++import org.springframework.test.util.ReflectionTestUtils;
++
++import java.util.Collections;
++
++import static org.junit.jupiter.api.Assertions.assertTrue;
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import java.lang.reflect.Proxy;
++
++class ProductVisibilityRulesTest {
++    @Test
++    void allPortalProductQueriesApplyTheSameVisibilityConditions() {
++        var examples = new java.util.ArrayList<PmsProductExample>();
++        PmsProductMapper mapper = (PmsProductMapper) Proxy.newProxyInstance(
++                PmsProductMapper.class.getClassLoader(), new Class[]{PmsProductMapper.class},
++                (proxy, method, args) -> {
++                    if (method.getName().equals("selectByExample")) {
++                        examples.add((PmsProductExample) args[0]);
++                        return Collections.emptyList();
++                    }
++                    return defaultValue(method.getReturnType());
++                });
++
++        PmsPortalProductServiceImpl search = new PmsPortalProductServiceImpl();
++        ReflectionTestUtils.setField(search, "productMapper", mapper);
++        search.search("", null, null, 1, 10, 1);
++
++        PmsPortalBrandServiceImpl brand = new PmsPortalBrandServiceImpl();
++        ReflectionTestUtils.setField(brand, "productMapper", mapper);
++        brand.productList(7L, 1, 10);
++
++        HomeServiceImpl home = new HomeServiceImpl();
++        ReflectionTestUtils.setField(home, "productMapper", mapper);
++        home.recommendProductList(10, 1);
++
++        assertEquals(3, examples.size());
++        for (PmsProductExample example : examples) {
++            var conditions = example.getOredCriteria().get(0).getAllCriteria();
++            assertTrue(conditions.stream().anyMatch(c -> "delete_status =".equals(c.getCondition()) && Integer.valueOf(0).equals(c.getValue())));
++            assertTrue(conditions.stream().anyMatch(c -> "publish_status =".equals(c.getCondition()) && Integer.valueOf(1).equals(c.getValue())));
++        }
++    }
++
++    private static Object defaultValue(Class<?> type) {
++        if (!type.isPrimitive()) return null;
++        if (type == boolean.class) return false;
++        if (type == char.class) return '\0';
++        return 0;
++    }
++}

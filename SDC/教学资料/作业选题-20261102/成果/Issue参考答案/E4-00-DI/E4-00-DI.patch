@@ -1,0 +1,2514 @@
+diff --git a/SDC/E4/answers/E4-00-DI/E4-00-DI.patch b/SDC/E4/answers/E4-00-DI/E4-00-DI.patch
+new file mode 100644
+index 00000000..37a10d1d
+--- /dev/null
++++ b/SDC/E4/answers/E4-00-DI/E4-00-DI.patch
+@@ -0,0 +1,834 @@
++diff --git a/SDC/E4/answers/E4-00-DI/ISSUE.md b/SDC/E4/answers/E4-00-DI/ISSUE.md
++new file mode 100644
++index 00000000..123c160e
++--- /dev/null
+++++ b/SDC/E4/answers/E4-00-DI/ISSUE.md
++@@ -0,0 +1,44 @@
+++# E4-00 DI 教师示例：促销服务改为构造注入
+++
+++## 背景
+++
+++`OmsPromotionServiceImpl` 通过字段注入 `PortalProductDao`。现有促销特征测试先无参创建服务，再通过反射设置私有字段，测试必须了解实现细节，也无法验证 Spring 对目标构造器的装配。
+++
+++## 目标
+++
+++仅将该依赖改为构造器注入；保留促销业务行为、事务声明和事务边界。保持原七组业务输入与断言，并用最小 Spring 容器验证服务可被装配且依赖可用。
+++
+++## 学生任务
+++
+++1. 以基线 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8` 为起点，阅读服务、`PortalProductDao` 和 `SDC/E4` 的 `PromotionTest`，查找直接构造服务的调用方。
+++2. 在改造前运行 `mvn -pl SDC/E4 -am test` 并保存结果；保留原测试的七组输入和断言。
+++3. 将该 DAO 改为构造器注入，同步修改所有直接构造调用，以构造器传入测试替身。不要修改促销逻辑、事务声明或边界。
+++4. 编写最小 Spring 容器测试，注册 DAO 替身和服务类，验证容器创建服务并使用注入的 DAO；再次运行相同测试命令并保存结果。
+++5. 说明构造注入的收益与调用方修改成本，以及它不自动保证非 null，也不自动构成依赖倒置；说明测试证据的范围。
+++
+++## 验收
+++
+++- 促销服务使用 `PortalProductDao` 单构造器注入，无字段注入。
+++- 原 `PromotionTest` 保持一个测试、七组输入，替身通过构造器提供，不再反射设置字段。
+++- 最小 Spring 容器测试成功创建服务并验证 DAO 调用。
+++- `mvn -pl SDC/E4 -am test` 在 JDK 17 下通过。
+++- 不改促销规则、事务注解或事务边界；不将构造注入表述为依赖倒置或非 null 保证。
+++
+++## 参考答案与复现
+++
+++- [参考分支](https://github.com/meng004/mall/tree/exp/e4-00-di)；[答案、补丁和完整日志](https://github.com/meng004/mall/tree/exp/e4-00-di/SDC/E4/answers/E4-00-DI)。此分支供学习参考，不创建 PR、不合入主线。
+++- 基线 JDK 17 实测 1 项测试通过；改后 2 项测试通过，均为失败、错误、跳过各 0。原有 `PromotionTest` 是 1 项测试、7 组输入，并非 7 项测试。
+++
+++```sh
+++git clone --branch exp/e4-00-di --single-branch https://github.com/meng004/mall.git mall-e4-00-di
+++cd mall-e4-00-di
+++mvn -pl SDC/E4 -am test
+++```
+++
+++使用 JDK 17；首次运行需要 Maven 依赖可用。参考分支是改后状态，改前结果和源码对照以基线及答案中的日志、补丁为准。
+++
+++## 范围说明
+++
+++最小容器仅显式注册服务类和 DAO 替身，验证单构造器装配与 DAO 调用；不启动完整 Spring Boot 应用，不验证组件扫描、生产数据库、真实 MyBatis 或端到端行为。七组输入只证明所测行为，不代表所有促销场景。构造器不自行拒绝 null。
+++
+++这是新的 E4-00 DI 示例，不复用 Issue #20（优惠券策略重构）或 `exp/e4-00`。
++diff --git a/SDC/E4/answers/E4-00-DI/README.md b/SDC/E4/answers/E4-00-DI/README.md
++new file mode 100644
++index 00000000..af1e4284
++--- /dev/null
+++++ b/SDC/E4/answers/E4-00-DI/README.md
++@@ -0,0 +1,25 @@
+++# E4-00 DI 教师示例参考答案
+++
+++## 结果
+++
+++将 `OmsPromotionServiceImpl` 的 `PortalProductDao` 从字段注入改为单构造器注入。构造器只保存传入依赖，没有新增非 null 约束；本改动不改变促销算法、事务注解或事务边界。
+++
+++## 变更范围
+++
+++- `mall-portal/.../OmsPromotionServiceImpl.java`：移除字段上的 `@Autowired`，增加 `final` 字段和构造器。
+++- `SDC/E4/.../PromotionTest.java`：保留一个测试和原有七组输入，直接传入 DAO mock，移除反射字段写入。
+++- `SDC/E4/.../PromotionWiringTest.java`：使用最小 `AnnotationConfigApplicationContext` 注册 DAO 替身和服务类型，确认 Spring 能创建服务并将 DAO 用于调用。
+++
+++直接构造调用清单（本仓库 Java 源码）：`PromotionTest.check`。已改为 `new OmsPromotionServiceImpl(dao)`。生产代码由 Spring 创建，没有其他直接 `new` 调用。
+++
+++## 验证
+++
+++基线与改后都运行 `mvn -pl SDC/E4 -am test`，使用 JDK 17。基线 1 项测试通过；改后 2 项测试通过（业务特征 1 项、容器装配 1 项），失败/错误/跳过均为 0。完整日志见 `before.log` 和 `after.log`。
+++
+++七组输入对应单品、阶梯命中、阶梯未命中、满减命中、满减未命中、无促销、未知促销类型；每组核对优惠金额、提示文案、可售库存、积分、成长值和数量。结果仅证明这些输入的行为保持，不代表全部促销行为。
+++
+++## 解释边界
+++
+++构造注入让依赖在创建对象时显式提供，并使无参创建不再适用；它本身不等于依赖倒置，也不保证传入值非 null。Spring 当前单构造器可自动注入，无需 `@Autowired`。测试容器显式注册该服务和 DAO 替身，不验证组件扫描，不启动完整应用或数据库，也不验证真实 MyBatis 或端到端行为。
+++
+++历史 `Issue #20` 与 `exp/e4-00` 是优惠券策略重构，不属于本示例；学生任务见 `ISSUE.md`，答案分支为 `exp/e4-00-di`。
++diff --git a/SDC/E4/answers/E4-00-DI/after.log b/SDC/E4/answers/E4-00-DI/after.log
++new file mode 100644
++index 00000000..4944c818
++--- /dev/null
+++++ b/SDC/E4/answers/E4-00-DI/after.log
++@@ -0,0 +1,161 @@
+++[INFO] Scanning for projects...
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Reactor Build Order:
+++[INFO] 
+++[INFO] mall                                                               [pom]
+++[INFO] mall-common                                                        [jar]
+++[INFO] mall-mbg                                                           [jar]
+++[INFO] mall-security                                                      [jar]
+++[INFO] mall-portal                                                        [jar]
+++[INFO] SDC - software design and conventions                              [pom]
+++[INFO] SDC E4                                                             [jar]
+++[INFO] 
+++[INFO] ------------------------< com.macro.mall:mall >-------------------------
+++[INFO] Building mall 1.0-SNAPSHOT                                         [1/7]
+++[INFO]   from pom.xml
+++[INFO] --------------------------------[ pom ]---------------------------------
+++[INFO] 
+++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
+++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/7]
+++[INFO]   from mall-common/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
+++[INFO] Copying 0 resource from src/main/resources to target/classes
+++[INFO] Copying 1 resource from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
+++[INFO] Nothing to compile - all classes are up to date.
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-common/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
+++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/7]
+++[INFO]   from mall-mbg/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
+++[INFO] Copying 0 resource from src/main/resources to target/classes
+++[INFO] Copying 78 resources from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
+++[INFO] Nothing to compile - all classes are up to date.
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-mbg/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] --------------------< com.macro.mall:mall-security >--------------------
+++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/7]
+++[INFO]   from mall-security/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
+++[INFO] Nothing to compile - all classes are up to date.
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
+++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [5/7]
+++[INFO]   from mall-portal/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
+++[INFO] Copying 3 resources from src/main/resources to target/classes
+++[INFO] Copying 5 resources from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
+++[INFO] Recompiling the module because of changed source code.
+++[INFO] Compiling 94 source files with javac [debug parameters release 17] to target/classes
+++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java使用或覆盖了已过时的 API。
+++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-portal/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
+++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [6/7]
+++[INFO]   from SDC/pom.xml
+++[INFO] --------------------------------[ pom ]---------------------------------
+++[INFO] 
+++[INFO] -----------------------< com.macro.mall:sdc-e4 >------------------------
+++[INFO] Building SDC E4 1.0-SNAPSHOT                                       [7/7]
+++[INFO]   from SDC/E4/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e4 ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e4 ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e4 ---
+++[INFO] Copying 1 resource from src/test/resources to target/test-classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e4 ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e4 ---
+++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+++[INFO] 
+++[INFO] -------------------------------------------------------
+++[INFO]  T E S T S
+++[INFO] -------------------------------------------------------
+++[INFO] Running com.macro.mall.sdc.e4.PromotionWiringTest
+++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.83 s -- in com.macro.mall.sdc.e4.PromotionWiringTest
+++[INFO] Running com.macro.mall.sdc.e4.PromotionTest
+++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.009 s -- in com.macro.mall.sdc.e4.PromotionTest
+++[INFO] 
+++[INFO] Results:
+++[INFO] 
+++[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+++[INFO] 
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
+++[INFO] 
+++[INFO] mall ............................................... SUCCESS [  0.001 s]
+++[INFO] mall-common ........................................ SUCCESS [  0.268 s]
+++[INFO] mall-mbg ........................................... SUCCESS [  0.078 s]
+++[INFO] mall-security ...................................... SUCCESS [  0.019 s]
+++[INFO] mall-portal ........................................ SUCCESS [  1.413 s]
+++[INFO] SDC - software design and conventions .............. SUCCESS [  0.000 s]
+++[INFO] SDC E4 ............................................. SUCCESS [ 11.294 s]
+++[INFO] ------------------------------------------------------------------------
+++[INFO] BUILD SUCCESS
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Total time:  13.214 s
+++[INFO] Finished at: 2026-11-02T10:09:52+08:00
+++[INFO] ------------------------------------------------------------------------
++diff --git a/SDC/E4/answers/E4-00-DI/before.log b/SDC/E4/answers/E4-00-DI/before.log
++new file mode 100644
++index 00000000..d527a112
++--- /dev/null
+++++ b/SDC/E4/answers/E4-00-DI/before.log
++@@ -0,0 +1,164 @@
+++[INFO] Scanning for projects...
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Reactor Build Order:
+++[INFO] 
+++[INFO] mall                                                               [pom]
+++[INFO] mall-common                                                        [jar]
+++[INFO] mall-mbg                                                           [jar]
+++[INFO] mall-security                                                      [jar]
+++[INFO] mall-portal                                                        [jar]
+++[INFO] SDC - software design and conventions                              [pom]
+++[INFO] SDC E4                                                             [jar]
+++[INFO] 
+++[INFO] ------------------------< com.macro.mall:mall >-------------------------
+++[INFO] Building mall 1.0-SNAPSHOT                                         [1/7]
+++[INFO]   from pom.xml
+++[INFO] --------------------------------[ pom ]---------------------------------
+++[INFO] 
+++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
+++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/7]
+++[INFO]   from mall-common/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
+++[INFO] Copying 0 resource from src/main/resources to target/classes
+++[INFO] Copying 1 resource from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
+++[INFO] Recompiling the module because of changed source code.
+++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-common/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
+++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/7]
+++[INFO]   from mall-mbg/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
+++[INFO] Copying 0 resource from src/main/resources to target/classes
+++[INFO] Copying 78 resources from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 230 source files with javac [debug parameters release 17] to target/classes
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-mbg/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] --------------------< com.macro.mall:mall-security >--------------------
+++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/7]
+++[INFO]   from mall-security/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
+++[INFO] /private/tmp/mall-e4-00-di/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 某些输入文件使用或覆盖了已过时的 API。
+++[INFO] /private/tmp/mall-e4-00-di/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
+++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [5/7]
+++[INFO]   from mall-portal/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
+++[INFO] Copying 3 resources from src/main/resources to target/classes
+++[INFO] Copying 5 resources from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 94 source files with javac [debug parameters release 17] to target/classes
+++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java使用或覆盖了已过时的 API。
+++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-portal/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
+++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [6/7]
+++[INFO]   from SDC/pom.xml
+++[INFO] --------------------------------[ pom ]---------------------------------
+++[INFO] 
+++[INFO] -----------------------< com.macro.mall:sdc-e4 >------------------------
+++[INFO] Building SDC E4 1.0-SNAPSHOT                                       [7/7]
+++[INFO]   from SDC/E4/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e4 ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e4 ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e4 ---
+++[INFO] Copying 1 resource from src/test/resources to target/test-classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e4 ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 1 source file with javac [debug parameters release 17] to target/test-classes
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e4 ---
+++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+++[INFO] 
+++[INFO] -------------------------------------------------------
+++[INFO]  T E S T S
+++[INFO] -------------------------------------------------------
+++[INFO] Running com.macro.mall.sdc.e4.PromotionTest
+++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.79 s -- in com.macro.mall.sdc.e4.PromotionTest
+++[INFO] 
+++[INFO] Results:
+++[INFO] 
+++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+++[INFO] 
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
+++[INFO] 
+++[INFO] mall ............................................... SUCCESS [  0.001 s]
+++[INFO] mall-common ........................................ SUCCESS [  0.887 s]
+++[INFO] mall-mbg ........................................... SUCCESS [  1.379 s]
+++[INFO] mall-security ...................................... SUCCESS [  0.291 s]
+++[INFO] mall-portal ........................................ SUCCESS [  0.936 s]
+++[INFO] SDC - software design and conventions .............. SUCCESS [  0.001 s]
+++[INFO] SDC E4 ............................................. SUCCESS [ 11.228 s]
+++[INFO] ------------------------------------------------------------------------
+++[INFO] BUILD SUCCESS
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Total time:  14.875 s
+++[INFO] Finished at: 2026-11-02T10:08:58+08:00
+++[INFO] ------------------------------------------------------------------------
++diff --git a/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionTest.java b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionTest.java
++index ffbf7c73..ab4893c0 100644
++--- a/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionTest.java
+++++ b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionTest.java
++@@ -5,7 +5,6 @@ import com.macro.mall.portal.dao.PortalProductDao;
++ import com.macro.mall.portal.domain.*;
++ import com.macro.mall.portal.service.impl.OmsPromotionServiceImpl;
++ import org.junit.jupiter.api.Test;
++-import org.springframework.test.util.ReflectionTestUtils;
++ import java.math.BigDecimal;
++ import java.util.List;
++ import java.util.ArrayList;
++@@ -25,9 +24,8 @@ class PromotionTest {
++     }
++ 
++     private void check(int type, int quantity, String reduction, String message) {
++-        OmsPromotionServiceImpl service = new OmsPromotionServiceImpl();
++         PortalProductDao dao = mock(PortalProductDao.class, withSettings().mockMaker("mock-maker-subclass"));
++-        ReflectionTestUtils.setField(service, "portalProductDao", dao);
+++        OmsPromotionServiceImpl service = new OmsPromotionServiceImpl(dao);
++         PmsSkuStock sku = new PmsSkuStock();
++         sku.setId(7L);
++         sku.setPrice(new BigDecimal("100.00"));
++diff --git a/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionWiringTest.java b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionWiringTest.java
++new file mode 100644
++index 00000000..550ec6a9
++--- /dev/null
+++++ b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionWiringTest.java
++@@ -0,0 +1,24 @@
+++package com.macro.mall.sdc.e4;
+++
+++import com.macro.mall.portal.dao.PortalProductDao;
+++import com.macro.mall.portal.service.impl.OmsPromotionServiceImpl;
+++import org.junit.jupiter.api.Test;
+++import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+++
+++import java.util.Collections;
+++
+++import static org.mockito.Mockito.*;
+++
+++class PromotionWiringTest {
+++    @Test void springInjectsTheDaoIntoTheSingleConstructor() {
+++        PortalProductDao dao = mock(PortalProductDao.class, withSettings().mockMaker("mock-maker-subclass"));
+++        when(dao.getPromotionProductList(anyList())).thenReturn(Collections.emptyList());
+++        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+++            context.registerBean(PortalProductDao.class, () -> dao);
+++            context.register(OmsPromotionServiceImpl.class);
+++            context.refresh();
+++            context.getBean(OmsPromotionServiceImpl.class).calcCartPromotion(Collections.emptyList());
+++            verify(dao).getPromotionProductList(Collections.emptyList());
+++        }
+++    }
+++}
++diff --git a/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPromotionServiceImpl.java b/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPromotionServiceImpl.java
++index 0e7aa35b..a98316f6 100644
++--- a/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPromotionServiceImpl.java
+++++ b/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPromotionServiceImpl.java
++@@ -9,7 +9,6 @@ import com.macro.mall.portal.domain.CartPromotionItem;
++ import com.macro.mall.portal.domain.PromotionProduct;
++ import com.macro.mall.portal.service.OmsPromotionService;
++ import org.springframework.beans.BeanUtils;
++-import org.springframework.beans.factory.annotation.Autowired;
++ import org.springframework.stereotype.Service;
++ 
++ import java.math.BigDecimal;
++@@ -22,8 +21,11 @@ import java.util.*;
++  */
++ @Service
++ public class OmsPromotionServiceImpl implements OmsPromotionService {
++-    @Autowired
++-    private PortalProductDao portalProductDao;
+++    private final PortalProductDao portalProductDao;
+++
+++    public OmsPromotionServiceImpl(PortalProductDao portalProductDao) {
+++        this.portalProductDao = portalProductDao;
+++    }
++ 
++     @Override
++     public List<CartPromotionItem> calcCartPromotion(List<OmsCartItem> cartItemList) {
++diff --git "a/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/\346\224\271\345\211\215\346\227\245\345\277\227.log" "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/\346\224\271\345\211\215\346\227\245\345\277\227.log"
++new file mode 100644
++index 00000000..d527a112
++--- /dev/null
+++++ "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/\346\224\271\345\211\215\346\227\245\345\277\227.log"
++@@ -0,0 +1,164 @@
+++[INFO] Scanning for projects...
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Reactor Build Order:
+++[INFO] 
+++[INFO] mall                                                               [pom]
+++[INFO] mall-common                                                        [jar]
+++[INFO] mall-mbg                                                           [jar]
+++[INFO] mall-security                                                      [jar]
+++[INFO] mall-portal                                                        [jar]
+++[INFO] SDC - software design and conventions                              [pom]
+++[INFO] SDC E4                                                             [jar]
+++[INFO] 
+++[INFO] ------------------------< com.macro.mall:mall >-------------------------
+++[INFO] Building mall 1.0-SNAPSHOT                                         [1/7]
+++[INFO]   from pom.xml
+++[INFO] --------------------------------[ pom ]---------------------------------
+++[INFO] 
+++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
+++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/7]
+++[INFO]   from mall-common/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
+++[INFO] Copying 0 resource from src/main/resources to target/classes
+++[INFO] Copying 1 resource from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
+++[INFO] Recompiling the module because of changed source code.
+++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-common/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
+++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/7]
+++[INFO]   from mall-mbg/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
+++[INFO] Copying 0 resource from src/main/resources to target/classes
+++[INFO] Copying 78 resources from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 230 source files with javac [debug parameters release 17] to target/classes
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-mbg/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] --------------------< com.macro.mall:mall-security >--------------------
+++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/7]
+++[INFO]   from mall-security/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
+++[INFO] /private/tmp/mall-e4-00-di/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 某些输入文件使用或覆盖了已过时的 API。
+++[INFO] /private/tmp/mall-e4-00-di/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
+++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [5/7]
+++[INFO]   from mall-portal/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
+++[INFO] Copying 3 resources from src/main/resources to target/classes
+++[INFO] Copying 5 resources from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 94 source files with javac [debug parameters release 17] to target/classes
+++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java使用或覆盖了已过时的 API。
+++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-portal/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
+++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [6/7]
+++[INFO]   from SDC/pom.xml
+++[INFO] --------------------------------[ pom ]---------------------------------
+++[INFO] 
+++[INFO] -----------------------< com.macro.mall:sdc-e4 >------------------------
+++[INFO] Building SDC E4 1.0-SNAPSHOT                                       [7/7]
+++[INFO]   from SDC/E4/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e4 ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e4 ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e4 ---
+++[INFO] Copying 1 resource from src/test/resources to target/test-classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e4 ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 1 source file with javac [debug parameters release 17] to target/test-classes
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e4 ---
+++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+++[INFO] 
+++[INFO] -------------------------------------------------------
+++[INFO]  T E S T S
+++[INFO] -------------------------------------------------------
+++[INFO] Running com.macro.mall.sdc.e4.PromotionTest
+++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.79 s -- in com.macro.mall.sdc.e4.PromotionTest
+++[INFO] 
+++[INFO] Results:
+++[INFO] 
+++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+++[INFO] 
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
+++[INFO] 
+++[INFO] mall ............................................... SUCCESS [  0.001 s]
+++[INFO] mall-common ........................................ SUCCESS [  0.887 s]
+++[INFO] mall-mbg ........................................... SUCCESS [  1.379 s]
+++[INFO] mall-security ...................................... SUCCESS [  0.291 s]
+++[INFO] mall-portal ........................................ SUCCESS [  0.936 s]
+++[INFO] SDC - software design and conventions .............. SUCCESS [  0.001 s]
+++[INFO] SDC E4 ............................................. SUCCESS [ 11.228 s]
+++[INFO] ------------------------------------------------------------------------
+++[INFO] BUILD SUCCESS
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Total time:  14.875 s
+++[INFO] Finished at: 2026-11-02T10:08:58+08:00
+++[INFO] ------------------------------------------------------------------------
++diff --git "a/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/\346\224\271\345\220\216\346\227\245\345\277\227.log" "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/\346\224\271\345\220\216\346\227\245\345\277\227.log"
++new file mode 100644
++index 00000000..4944c818
++--- /dev/null
+++++ "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/\346\224\271\345\220\216\346\227\245\345\277\227.log"
++@@ -0,0 +1,161 @@
+++[INFO] Scanning for projects...
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Reactor Build Order:
+++[INFO] 
+++[INFO] mall                                                               [pom]
+++[INFO] mall-common                                                        [jar]
+++[INFO] mall-mbg                                                           [jar]
+++[INFO] mall-security                                                      [jar]
+++[INFO] mall-portal                                                        [jar]
+++[INFO] SDC - software design and conventions                              [pom]
+++[INFO] SDC E4                                                             [jar]
+++[INFO] 
+++[INFO] ------------------------< com.macro.mall:mall >-------------------------
+++[INFO] Building mall 1.0-SNAPSHOT                                         [1/7]
+++[INFO]   from pom.xml
+++[INFO] --------------------------------[ pom ]---------------------------------
+++[INFO] 
+++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
+++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/7]
+++[INFO]   from mall-common/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
+++[INFO] Copying 0 resource from src/main/resources to target/classes
+++[INFO] Copying 1 resource from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
+++[INFO] Nothing to compile - all classes are up to date.
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-common/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
+++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/7]
+++[INFO]   from mall-mbg/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
+++[INFO] Copying 0 resource from src/main/resources to target/classes
+++[INFO] Copying 78 resources from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
+++[INFO] Nothing to compile - all classes are up to date.
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-mbg/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] --------------------< com.macro.mall:mall-security >--------------------
+++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/7]
+++[INFO]   from mall-security/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
+++[INFO] Nothing to compile - all classes are up to date.
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
+++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [5/7]
+++[INFO]   from mall-portal/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
+++[INFO] Copying 3 resources from src/main/resources to target/classes
+++[INFO] Copying 5 resources from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
+++[INFO] Recompiling the module because of changed source code.
+++[INFO] Compiling 94 source files with javac [debug parameters release 17] to target/classes
+++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java使用或覆盖了已过时的 API。
+++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-portal/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
+++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [6/7]
+++[INFO]   from SDC/pom.xml
+++[INFO] --------------------------------[ pom ]---------------------------------
+++[INFO] 
+++[INFO] -----------------------< com.macro.mall:sdc-e4 >------------------------
+++[INFO] Building SDC E4 1.0-SNAPSHOT                                       [7/7]
+++[INFO]   from SDC/E4/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e4 ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e4 ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e4 ---
+++[INFO] Copying 1 resource from src/test/resources to target/test-classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e4 ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e4 ---
+++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+++[INFO] 
+++[INFO] -------------------------------------------------------
+++[INFO]  T E S T S
+++[INFO] -------------------------------------------------------
+++[INFO] Running com.macro.mall.sdc.e4.PromotionWiringTest
+++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.83 s -- in com.macro.mall.sdc.e4.PromotionWiringTest
+++[INFO] Running com.macro.mall.sdc.e4.PromotionTest
+++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.009 s -- in com.macro.mall.sdc.e4.PromotionTest
+++[INFO] 
+++[INFO] Results:
+++[INFO] 
+++[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+++[INFO] 
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
+++[INFO] 
+++[INFO] mall ............................................... SUCCESS [  0.001 s]
+++[INFO] mall-common ........................................ SUCCESS [  0.268 s]
+++[INFO] mall-mbg ........................................... SUCCESS [  0.078 s]
+++[INFO] mall-security ...................................... SUCCESS [  0.019 s]
+++[INFO] mall-portal ........................................ SUCCESS [  1.413 s]
+++[INFO] SDC - software design and conventions .............. SUCCESS [  0.000 s]
+++[INFO] SDC E4 ............................................. SUCCESS [ 11.294 s]
+++[INFO] ------------------------------------------------------------------------
+++[INFO] BUILD SUCCESS
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Total time:  13.214 s
+++[INFO] Finished at: 2026-11-02T10:09:52+08:00
+++[INFO] ------------------------------------------------------------------------
+diff --git a/SDC/E4/answers/E4-00-DI/ISSUE.md b/SDC/E4/answers/E4-00-DI/ISSUE.md
+new file mode 100644
+index 00000000..123c160e
+--- /dev/null
++++ b/SDC/E4/answers/E4-00-DI/ISSUE.md
+@@ -0,0 +1,44 @@
++# E4-00 DI 教师示例：促销服务改为构造注入
++
++## 背景
++
++`OmsPromotionServiceImpl` 通过字段注入 `PortalProductDao`。现有促销特征测试先无参创建服务，再通过反射设置私有字段，测试必须了解实现细节，也无法验证 Spring 对目标构造器的装配。
++
++## 目标
++
++仅将该依赖改为构造器注入；保留促销业务行为、事务声明和事务边界。保持原七组业务输入与断言，并用最小 Spring 容器验证服务可被装配且依赖可用。
++
++## 学生任务
++
++1. 以基线 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8` 为起点，阅读服务、`PortalProductDao` 和 `SDC/E4` 的 `PromotionTest`，查找直接构造服务的调用方。
++2. 在改造前运行 `mvn -pl SDC/E4 -am test` 并保存结果；保留原测试的七组输入和断言。
++3. 将该 DAO 改为构造器注入，同步修改所有直接构造调用，以构造器传入测试替身。不要修改促销逻辑、事务声明或边界。
++4. 编写最小 Spring 容器测试，注册 DAO 替身和服务类，验证容器创建服务并使用注入的 DAO；再次运行相同测试命令并保存结果。
++5. 说明构造注入的收益与调用方修改成本，以及它不自动保证非 null，也不自动构成依赖倒置；说明测试证据的范围。
++
++## 验收
++
++- 促销服务使用 `PortalProductDao` 单构造器注入，无字段注入。
++- 原 `PromotionTest` 保持一个测试、七组输入，替身通过构造器提供，不再反射设置字段。
++- 最小 Spring 容器测试成功创建服务并验证 DAO 调用。
++- `mvn -pl SDC/E4 -am test` 在 JDK 17 下通过。
++- 不改促销规则、事务注解或事务边界；不将构造注入表述为依赖倒置或非 null 保证。
++
++## 参考答案与复现
++
++- [参考分支](https://github.com/meng004/mall/tree/exp/e4-00-di)；[答案、补丁和完整日志](https://github.com/meng004/mall/tree/exp/e4-00-di/SDC/E4/answers/E4-00-DI)。此分支供学习参考，不创建 PR、不合入主线。
++- 基线 JDK 17 实测 1 项测试通过；改后 2 项测试通过，均为失败、错误、跳过各 0。原有 `PromotionTest` 是 1 项测试、7 组输入，并非 7 项测试。
++
++```sh
++git clone --branch exp/e4-00-di --single-branch https://github.com/meng004/mall.git mall-e4-00-di
++cd mall-e4-00-di
++mvn -pl SDC/E4 -am test
++```
++
++使用 JDK 17；首次运行需要 Maven 依赖可用。参考分支是改后状态，改前结果和源码对照以基线及答案中的日志、补丁为准。
++
++## 范围说明
++
++最小容器仅显式注册服务类和 DAO 替身，验证单构造器装配与 DAO 调用；不启动完整 Spring Boot 应用，不验证组件扫描、生产数据库、真实 MyBatis 或端到端行为。七组输入只证明所测行为，不代表所有促销场景。构造器不自行拒绝 null。
++
++这是新的 E4-00 DI 示例，不复用 Issue #20（优惠券策略重构）或 `exp/e4-00`。
+diff --git a/SDC/E4/answers/E4-00-DI/README.md b/SDC/E4/answers/E4-00-DI/README.md
+new file mode 100644
+index 00000000..af1e4284
+--- /dev/null
++++ b/SDC/E4/answers/E4-00-DI/README.md
+@@ -0,0 +1,25 @@
++# E4-00 DI 教师示例参考答案
++
++## 结果
++
++将 `OmsPromotionServiceImpl` 的 `PortalProductDao` 从字段注入改为单构造器注入。构造器只保存传入依赖，没有新增非 null 约束；本改动不改变促销算法、事务注解或事务边界。
++
++## 变更范围
++
++- `mall-portal/.../OmsPromotionServiceImpl.java`：移除字段上的 `@Autowired`，增加 `final` 字段和构造器。
++- `SDC/E4/.../PromotionTest.java`：保留一个测试和原有七组输入，直接传入 DAO mock，移除反射字段写入。
++- `SDC/E4/.../PromotionWiringTest.java`：使用最小 `AnnotationConfigApplicationContext` 注册 DAO 替身和服务类型，确认 Spring 能创建服务并将 DAO 用于调用。
++
++直接构造调用清单（本仓库 Java 源码）：`PromotionTest.check`。已改为 `new OmsPromotionServiceImpl(dao)`。生产代码由 Spring 创建，没有其他直接 `new` 调用。
++
++## 验证
++
++基线与改后都运行 `mvn -pl SDC/E4 -am test`，使用 JDK 17。基线 1 项测试通过；改后 2 项测试通过（业务特征 1 项、容器装配 1 项），失败/错误/跳过均为 0。完整日志见 `before.log` 和 `after.log`。
++
++七组输入对应单品、阶梯命中、阶梯未命中、满减命中、满减未命中、无促销、未知促销类型；每组核对优惠金额、提示文案、可售库存、积分、成长值和数量。结果仅证明这些输入的行为保持，不代表全部促销行为。
++
++## 解释边界
++
++构造注入让依赖在创建对象时显式提供，并使无参创建不再适用；它本身不等于依赖倒置，也不保证传入值非 null。Spring 当前单构造器可自动注入，无需 `@Autowired`。测试容器显式注册该服务和 DAO 替身，不验证组件扫描，不启动完整应用或数据库，也不验证真实 MyBatis 或端到端行为。
++
++历史 `Issue #20` 与 `exp/e4-00` 是优惠券策略重构，不属于本示例；学生任务见 `ISSUE.md`，答案分支为 `exp/e4-00-di`。
+diff --git a/SDC/E4/answers/E4-00-DI/after.log b/SDC/E4/answers/E4-00-DI/after.log
+new file mode 100644
+index 00000000..4944c818
+--- /dev/null
++++ b/SDC/E4/answers/E4-00-DI/after.log
+@@ -0,0 +1,161 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-portal                                                        [jar]
++[INFO] SDC - software design and conventions                              [pom]
++[INFO] SDC E4                                                             [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/7]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/7]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/7]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/7]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [5/7]
++[INFO]   from mall-portal/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 5 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
++[INFO] Recompiling the module because of changed source code.
++[INFO] Compiling 94 source files with javac [debug parameters release 17] to target/classes
++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-portal/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [6/7]
++[INFO]   from SDC/pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] -----------------------< com.macro.mall:sdc-e4 >------------------------
++[INFO] Building SDC E4 1.0-SNAPSHOT                                       [7/7]
++[INFO]   from SDC/E4/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e4 ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e4 ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e4 ---
++[INFO] Copying 1 resource from src/test/resources to target/test-classes
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e4 ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e4 ---
++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
++[INFO] 
++[INFO] -------------------------------------------------------
++[INFO]  T E S T S
++[INFO] -------------------------------------------------------
++[INFO] Running com.macro.mall.sdc.e4.PromotionWiringTest
++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.83 s -- in com.macro.mall.sdc.e4.PromotionWiringTest
++[INFO] Running com.macro.mall.sdc.e4.PromotionTest
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.009 s -- in com.macro.mall.sdc.e4.PromotionTest
++[INFO] 
++[INFO] Results:
++[INFO] 
++[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
++[INFO] 
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.001 s]
++[INFO] mall-common ........................................ SUCCESS [  0.268 s]
++[INFO] mall-mbg ........................................... SUCCESS [  0.078 s]
++[INFO] mall-security ...................................... SUCCESS [  0.019 s]
++[INFO] mall-portal ........................................ SUCCESS [  1.413 s]
++[INFO] SDC - software design and conventions .............. SUCCESS [  0.000 s]
++[INFO] SDC E4 ............................................. SUCCESS [ 11.294 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD SUCCESS
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  13.214 s
++[INFO] Finished at: 2026-11-02T10:09:52+08:00
++[INFO] ------------------------------------------------------------------------
+diff --git a/SDC/E4/answers/E4-00-DI/before.log b/SDC/E4/answers/E4-00-DI/before.log
+new file mode 100644
+index 00000000..d527a112
+--- /dev/null
++++ b/SDC/E4/answers/E4-00-DI/before.log
+@@ -0,0 +1,164 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-portal                                                        [jar]
++[INFO] SDC - software design and conventions                              [pom]
++[INFO] SDC E4                                                             [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/7]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/7]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Recompiling the module because of changed source code.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/7]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 230 source files with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/7]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++[INFO] /private/tmp/mall-e4-00-di/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 某些输入文件使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e4-00-di/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [5/7]
++[INFO]   from mall-portal/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 5 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 94 source files with javac [debug parameters release 17] to target/classes
++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-portal/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [6/7]
++[INFO]   from SDC/pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] -----------------------< com.macro.mall:sdc-e4 >------------------------
++[INFO] Building SDC E4 1.0-SNAPSHOT                                       [7/7]
++[INFO]   from SDC/E4/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e4 ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e4 ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e4 ---
++[INFO] Copying 1 resource from src/test/resources to target/test-classes
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e4 ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 1 source file with javac [debug parameters release 17] to target/test-classes
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e4 ---
++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
++[INFO] 
++[INFO] -------------------------------------------------------
++[INFO]  T E S T S
++[INFO] -------------------------------------------------------
++[INFO] Running com.macro.mall.sdc.e4.PromotionTest
++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.79 s -- in com.macro.mall.sdc.e4.PromotionTest
++[INFO] 
++[INFO] Results:
++[INFO] 
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
++[INFO] 
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.001 s]
++[INFO] mall-common ........................................ SUCCESS [  0.887 s]
++[INFO] mall-mbg ........................................... SUCCESS [  1.379 s]
++[INFO] mall-security ...................................... SUCCESS [  0.291 s]
++[INFO] mall-portal ........................................ SUCCESS [  0.936 s]
++[INFO] SDC - software design and conventions .............. SUCCESS [  0.001 s]
++[INFO] SDC E4 ............................................. SUCCESS [ 11.228 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD SUCCESS
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  14.875 s
++[INFO] Finished at: 2026-11-02T10:08:58+08:00
++[INFO] ------------------------------------------------------------------------
+diff --git a/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionTest.java b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionTest.java
+index ffbf7c73..ab4893c0 100644
+--- a/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionTest.java
++++ b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionTest.java
+@@ -5,7 +5,6 @@ import com.macro.mall.portal.dao.PortalProductDao;
+ import com.macro.mall.portal.domain.*;
+ import com.macro.mall.portal.service.impl.OmsPromotionServiceImpl;
+ import org.junit.jupiter.api.Test;
+-import org.springframework.test.util.ReflectionTestUtils;
+ import java.math.BigDecimal;
+ import java.util.List;
+ import java.util.ArrayList;
+@@ -25,9 +24,8 @@ class PromotionTest {
+     }
+ 
+     private void check(int type, int quantity, String reduction, String message) {
+-        OmsPromotionServiceImpl service = new OmsPromotionServiceImpl();
+         PortalProductDao dao = mock(PortalProductDao.class, withSettings().mockMaker("mock-maker-subclass"));
+-        ReflectionTestUtils.setField(service, "portalProductDao", dao);
++        OmsPromotionServiceImpl service = new OmsPromotionServiceImpl(dao);
+         PmsSkuStock sku = new PmsSkuStock();
+         sku.setId(7L);
+         sku.setPrice(new BigDecimal("100.00"));
+diff --git a/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionWiringTest.java b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionWiringTest.java
+new file mode 100644
+index 00000000..550ec6a9
+--- /dev/null
++++ b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionWiringTest.java
+@@ -0,0 +1,24 @@
++package com.macro.mall.sdc.e4;
++
++import com.macro.mall.portal.dao.PortalProductDao;
++import com.macro.mall.portal.service.impl.OmsPromotionServiceImpl;
++import org.junit.jupiter.api.Test;
++import org.springframework.context.annotation.AnnotationConfigApplicationContext;
++
++import java.util.Collections;
++
++import static org.mockito.Mockito.*;
++
++class PromotionWiringTest {
++    @Test void springInjectsTheDaoIntoTheSingleConstructor() {
++        PortalProductDao dao = mock(PortalProductDao.class, withSettings().mockMaker("mock-maker-subclass"));
++        when(dao.getPromotionProductList(anyList())).thenReturn(Collections.emptyList());
++        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
++            context.registerBean(PortalProductDao.class, () -> dao);
++            context.register(OmsPromotionServiceImpl.class);
++            context.refresh();
++            context.getBean(OmsPromotionServiceImpl.class).calcCartPromotion(Collections.emptyList());
++            verify(dao).getPromotionProductList(Collections.emptyList());
++        }
++    }
++}
+diff --git a/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPromotionServiceImpl.java b/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPromotionServiceImpl.java
+index 0e7aa35b..a98316f6 100644
+--- a/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPromotionServiceImpl.java
++++ b/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPromotionServiceImpl.java
+@@ -9,7 +9,6 @@ import com.macro.mall.portal.domain.CartPromotionItem;
+ import com.macro.mall.portal.domain.PromotionProduct;
+ import com.macro.mall.portal.service.OmsPromotionService;
+ import org.springframework.beans.BeanUtils;
+-import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.stereotype.Service;
+ 
+ import java.math.BigDecimal;
+@@ -22,8 +21,11 @@ import java.util.*;
+  */
+ @Service
+ public class OmsPromotionServiceImpl implements OmsPromotionService {
+-    @Autowired
+-    private PortalProductDao portalProductDao;
++    private final PortalProductDao portalProductDao;
++
++    public OmsPromotionServiceImpl(PortalProductDao portalProductDao) {
++        this.portalProductDao = portalProductDao;
++    }
+ 
+     @Override
+     public List<CartPromotionItem> calcCartPromotion(List<OmsCartItem> cartItemList) {
+diff --git "a/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/E4-00-DI.patch" "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/E4-00-DI.patch"
+new file mode 100644
+index 00000000..37a10d1d
+--- /dev/null
++++ "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/E4-00-DI.patch"
+@@ -0,0 +1,834 @@
++diff --git a/SDC/E4/answers/E4-00-DI/ISSUE.md b/SDC/E4/answers/E4-00-DI/ISSUE.md
++new file mode 100644
++index 00000000..123c160e
++--- /dev/null
+++++ b/SDC/E4/answers/E4-00-DI/ISSUE.md
++@@ -0,0 +1,44 @@
+++# E4-00 DI 教师示例：促销服务改为构造注入
+++
+++## 背景
+++
+++`OmsPromotionServiceImpl` 通过字段注入 `PortalProductDao`。现有促销特征测试先无参创建服务，再通过反射设置私有字段，测试必须了解实现细节，也无法验证 Spring 对目标构造器的装配。
+++
+++## 目标
+++
+++仅将该依赖改为构造器注入；保留促销业务行为、事务声明和事务边界。保持原七组业务输入与断言，并用最小 Spring 容器验证服务可被装配且依赖可用。
+++
+++## 学生任务
+++
+++1. 以基线 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8` 为起点，阅读服务、`PortalProductDao` 和 `SDC/E4` 的 `PromotionTest`，查找直接构造服务的调用方。
+++2. 在改造前运行 `mvn -pl SDC/E4 -am test` 并保存结果；保留原测试的七组输入和断言。
+++3. 将该 DAO 改为构造器注入，同步修改所有直接构造调用，以构造器传入测试替身。不要修改促销逻辑、事务声明或边界。
+++4. 编写最小 Spring 容器测试，注册 DAO 替身和服务类，验证容器创建服务并使用注入的 DAO；再次运行相同测试命令并保存结果。
+++5. 说明构造注入的收益与调用方修改成本，以及它不自动保证非 null，也不自动构成依赖倒置；说明测试证据的范围。
+++
+++## 验收
+++
+++- 促销服务使用 `PortalProductDao` 单构造器注入，无字段注入。
+++- 原 `PromotionTest` 保持一个测试、七组输入，替身通过构造器提供，不再反射设置字段。
+++- 最小 Spring 容器测试成功创建服务并验证 DAO 调用。
+++- `mvn -pl SDC/E4 -am test` 在 JDK 17 下通过。
+++- 不改促销规则、事务注解或事务边界；不将构造注入表述为依赖倒置或非 null 保证。
+++
+++## 参考答案与复现
+++
+++- [参考分支](https://github.com/meng004/mall/tree/exp/e4-00-di)；[答案、补丁和完整日志](https://github.com/meng004/mall/tree/exp/e4-00-di/SDC/E4/answers/E4-00-DI)。此分支供学习参考，不创建 PR、不合入主线。
+++- 基线 JDK 17 实测 1 项测试通过；改后 2 项测试通过，均为失败、错误、跳过各 0。原有 `PromotionTest` 是 1 项测试、7 组输入，并非 7 项测试。
+++
+++```sh
+++git clone --branch exp/e4-00-di --single-branch https://github.com/meng004/mall.git mall-e4-00-di
+++cd mall-e4-00-di
+++mvn -pl SDC/E4 -am test
+++```
+++
+++使用 JDK 17；首次运行需要 Maven 依赖可用。参考分支是改后状态，改前结果和源码对照以基线及答案中的日志、补丁为准。
+++
+++## 范围说明
+++
+++最小容器仅显式注册服务类和 DAO 替身，验证单构造器装配与 DAO 调用；不启动完整 Spring Boot 应用，不验证组件扫描、生产数据库、真实 MyBatis 或端到端行为。七组输入只证明所测行为，不代表所有促销场景。构造器不自行拒绝 null。
+++
+++这是新的 E4-00 DI 示例，不复用 Issue #20（优惠券策略重构）或 `exp/e4-00`。
++diff --git a/SDC/E4/answers/E4-00-DI/README.md b/SDC/E4/answers/E4-00-DI/README.md
++new file mode 100644
++index 00000000..af1e4284
++--- /dev/null
+++++ b/SDC/E4/answers/E4-00-DI/README.md
++@@ -0,0 +1,25 @@
+++# E4-00 DI 教师示例参考答案
+++
+++## 结果
+++
+++将 `OmsPromotionServiceImpl` 的 `PortalProductDao` 从字段注入改为单构造器注入。构造器只保存传入依赖，没有新增非 null 约束；本改动不改变促销算法、事务注解或事务边界。
+++
+++## 变更范围
+++
+++- `mall-portal/.../OmsPromotionServiceImpl.java`：移除字段上的 `@Autowired`，增加 `final` 字段和构造器。
+++- `SDC/E4/.../PromotionTest.java`：保留一个测试和原有七组输入，直接传入 DAO mock，移除反射字段写入。
+++- `SDC/E4/.../PromotionWiringTest.java`：使用最小 `AnnotationConfigApplicationContext` 注册 DAO 替身和服务类型，确认 Spring 能创建服务并将 DAO 用于调用。
+++
+++直接构造调用清单（本仓库 Java 源码）：`PromotionTest.check`。已改为 `new OmsPromotionServiceImpl(dao)`。生产代码由 Spring 创建，没有其他直接 `new` 调用。
+++
+++## 验证
+++
+++基线与改后都运行 `mvn -pl SDC/E4 -am test`，使用 JDK 17。基线 1 项测试通过；改后 2 项测试通过（业务特征 1 项、容器装配 1 项），失败/错误/跳过均为 0。完整日志见 `before.log` 和 `after.log`。
+++
+++七组输入对应单品、阶梯命中、阶梯未命中、满减命中、满减未命中、无促销、未知促销类型；每组核对优惠金额、提示文案、可售库存、积分、成长值和数量。结果仅证明这些输入的行为保持，不代表全部促销行为。
+++
+++## 解释边界
+++
+++构造注入让依赖在创建对象时显式提供，并使无参创建不再适用；它本身不等于依赖倒置，也不保证传入值非 null。Spring 当前单构造器可自动注入，无需 `@Autowired`。测试容器显式注册该服务和 DAO 替身，不验证组件扫描，不启动完整应用或数据库，也不验证真实 MyBatis 或端到端行为。
+++
+++历史 `Issue #20` 与 `exp/e4-00` 是优惠券策略重构，不属于本示例；学生任务见 `ISSUE.md`，答案分支为 `exp/e4-00-di`。
++diff --git a/SDC/E4/answers/E4-00-DI/after.log b/SDC/E4/answers/E4-00-DI/after.log
++new file mode 100644
++index 00000000..4944c818
++--- /dev/null
+++++ b/SDC/E4/answers/E4-00-DI/after.log
++@@ -0,0 +1,161 @@
+++[INFO] Scanning for projects...
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Reactor Build Order:
+++[INFO] 
+++[INFO] mall                                                               [pom]
+++[INFO] mall-common                                                        [jar]
+++[INFO] mall-mbg                                                           [jar]
+++[INFO] mall-security                                                      [jar]
+++[INFO] mall-portal                                                        [jar]
+++[INFO] SDC - software design and conventions                              [pom]
+++[INFO] SDC E4                                                             [jar]
+++[INFO] 
+++[INFO] ------------------------< com.macro.mall:mall >-------------------------
+++[INFO] Building mall 1.0-SNAPSHOT                                         [1/7]
+++[INFO]   from pom.xml
+++[INFO] --------------------------------[ pom ]---------------------------------
+++[INFO] 
+++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
+++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/7]
+++[INFO]   from mall-common/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
+++[INFO] Copying 0 resource from src/main/resources to target/classes
+++[INFO] Copying 1 resource from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
+++[INFO] Nothing to compile - all classes are up to date.
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-common/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
+++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/7]
+++[INFO]   from mall-mbg/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
+++[INFO] Copying 0 resource from src/main/resources to target/classes
+++[INFO] Copying 78 resources from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
+++[INFO] Nothing to compile - all classes are up to date.
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-mbg/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] --------------------< com.macro.mall:mall-security >--------------------
+++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/7]
+++[INFO]   from mall-security/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
+++[INFO] Nothing to compile - all classes are up to date.
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
+++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [5/7]
+++[INFO]   from mall-portal/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
+++[INFO] Copying 3 resources from src/main/resources to target/classes
+++[INFO] Copying 5 resources from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
+++[INFO] Recompiling the module because of changed source code.
+++[INFO] Compiling 94 source files with javac [debug parameters release 17] to target/classes
+++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java使用或覆盖了已过时的 API。
+++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-portal/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
+++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [6/7]
+++[INFO]   from SDC/pom.xml
+++[INFO] --------------------------------[ pom ]---------------------------------
+++[INFO] 
+++[INFO] -----------------------< com.macro.mall:sdc-e4 >------------------------
+++[INFO] Building SDC E4 1.0-SNAPSHOT                                       [7/7]
+++[INFO]   from SDC/E4/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e4 ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e4 ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e4 ---
+++[INFO] Copying 1 resource from src/test/resources to target/test-classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e4 ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e4 ---
+++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+++[INFO] 
+++[INFO] -------------------------------------------------------
+++[INFO]  T E S T S
+++[INFO] -------------------------------------------------------
+++[INFO] Running com.macro.mall.sdc.e4.PromotionWiringTest
+++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.83 s -- in com.macro.mall.sdc.e4.PromotionWiringTest
+++[INFO] Running com.macro.mall.sdc.e4.PromotionTest
+++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.009 s -- in com.macro.mall.sdc.e4.PromotionTest
+++[INFO] 
+++[INFO] Results:
+++[INFO] 
+++[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+++[INFO] 
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
+++[INFO] 
+++[INFO] mall ............................................... SUCCESS [  0.001 s]
+++[INFO] mall-common ........................................ SUCCESS [  0.268 s]
+++[INFO] mall-mbg ........................................... SUCCESS [  0.078 s]
+++[INFO] mall-security ...................................... SUCCESS [  0.019 s]
+++[INFO] mall-portal ........................................ SUCCESS [  1.413 s]
+++[INFO] SDC - software design and conventions .............. SUCCESS [  0.000 s]
+++[INFO] SDC E4 ............................................. SUCCESS [ 11.294 s]
+++[INFO] ------------------------------------------------------------------------
+++[INFO] BUILD SUCCESS
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Total time:  13.214 s
+++[INFO] Finished at: 2026-11-02T10:09:52+08:00
+++[INFO] ------------------------------------------------------------------------
++diff --git a/SDC/E4/answers/E4-00-DI/before.log b/SDC/E4/answers/E4-00-DI/before.log
++new file mode 100644
++index 00000000..d527a112
++--- /dev/null
+++++ b/SDC/E4/answers/E4-00-DI/before.log
++@@ -0,0 +1,164 @@
+++[INFO] Scanning for projects...
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Reactor Build Order:
+++[INFO] 
+++[INFO] mall                                                               [pom]
+++[INFO] mall-common                                                        [jar]
+++[INFO] mall-mbg                                                           [jar]
+++[INFO] mall-security                                                      [jar]
+++[INFO] mall-portal                                                        [jar]
+++[INFO] SDC - software design and conventions                              [pom]
+++[INFO] SDC E4                                                             [jar]
+++[INFO] 
+++[INFO] ------------------------< com.macro.mall:mall >-------------------------
+++[INFO] Building mall 1.0-SNAPSHOT                                         [1/7]
+++[INFO]   from pom.xml
+++[INFO] --------------------------------[ pom ]---------------------------------
+++[INFO] 
+++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
+++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/7]
+++[INFO]   from mall-common/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
+++[INFO] Copying 0 resource from src/main/resources to target/classes
+++[INFO] Copying 1 resource from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
+++[INFO] Recompiling the module because of changed source code.
+++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-common/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
+++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/7]
+++[INFO]   from mall-mbg/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
+++[INFO] Copying 0 resource from src/main/resources to target/classes
+++[INFO] Copying 78 resources from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 230 source files with javac [debug parameters release 17] to target/classes
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-mbg/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] --------------------< com.macro.mall:mall-security >--------------------
+++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/7]
+++[INFO]   from mall-security/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
+++[INFO] /private/tmp/mall-e4-00-di/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 某些输入文件使用或覆盖了已过时的 API。
+++[INFO] /private/tmp/mall-e4-00-di/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
+++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [5/7]
+++[INFO]   from mall-portal/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
+++[INFO] Copying 3 resources from src/main/resources to target/classes
+++[INFO] Copying 5 resources from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 94 source files with javac [debug parameters release 17] to target/classes
+++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java使用或覆盖了已过时的 API。
+++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-portal/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
+++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [6/7]
+++[INFO]   from SDC/pom.xml
+++[INFO] --------------------------------[ pom ]---------------------------------
+++[INFO] 
+++[INFO] -----------------------< com.macro.mall:sdc-e4 >------------------------
+++[INFO] Building SDC E4 1.0-SNAPSHOT                                       [7/7]
+++[INFO]   from SDC/E4/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e4 ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e4 ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e4 ---
+++[INFO] Copying 1 resource from src/test/resources to target/test-classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e4 ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 1 source file with javac [debug parameters release 17] to target/test-classes
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e4 ---
+++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+++[INFO] 
+++[INFO] -------------------------------------------------------
+++[INFO]  T E S T S
+++[INFO] -------------------------------------------------------
+++[INFO] Running com.macro.mall.sdc.e4.PromotionTest
+++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.79 s -- in com.macro.mall.sdc.e4.PromotionTest
+++[INFO] 
+++[INFO] Results:
+++[INFO] 
+++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+++[INFO] 
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
+++[INFO] 
+++[INFO] mall ............................................... SUCCESS [  0.001 s]
+++[INFO] mall-common ........................................ SUCCESS [  0.887 s]
+++[INFO] mall-mbg ........................................... SUCCESS [  1.379 s]
+++[INFO] mall-security ...................................... SUCCESS [  0.291 s]
+++[INFO] mall-portal ........................................ SUCCESS [  0.936 s]
+++[INFO] SDC - software design and conventions .............. SUCCESS [  0.001 s]
+++[INFO] SDC E4 ............................................. SUCCESS [ 11.228 s]
+++[INFO] ------------------------------------------------------------------------
+++[INFO] BUILD SUCCESS
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Total time:  14.875 s
+++[INFO] Finished at: 2026-11-02T10:08:58+08:00
+++[INFO] ------------------------------------------------------------------------
++diff --git a/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionTest.java b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionTest.java
++index ffbf7c73..ab4893c0 100644
++--- a/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionTest.java
+++++ b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionTest.java
++@@ -5,7 +5,6 @@ import com.macro.mall.portal.dao.PortalProductDao;
++ import com.macro.mall.portal.domain.*;
++ import com.macro.mall.portal.service.impl.OmsPromotionServiceImpl;
++ import org.junit.jupiter.api.Test;
++-import org.springframework.test.util.ReflectionTestUtils;
++ import java.math.BigDecimal;
++ import java.util.List;
++ import java.util.ArrayList;
++@@ -25,9 +24,8 @@ class PromotionTest {
++     }
++ 
++     private void check(int type, int quantity, String reduction, String message) {
++-        OmsPromotionServiceImpl service = new OmsPromotionServiceImpl();
++         PortalProductDao dao = mock(PortalProductDao.class, withSettings().mockMaker("mock-maker-subclass"));
++-        ReflectionTestUtils.setField(service, "portalProductDao", dao);
+++        OmsPromotionServiceImpl service = new OmsPromotionServiceImpl(dao);
++         PmsSkuStock sku = new PmsSkuStock();
++         sku.setId(7L);
++         sku.setPrice(new BigDecimal("100.00"));
++diff --git a/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionWiringTest.java b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionWiringTest.java
++new file mode 100644
++index 00000000..550ec6a9
++--- /dev/null
+++++ b/SDC/E4/src/test/java/com/macro/mall/sdc/e4/PromotionWiringTest.java
++@@ -0,0 +1,24 @@
+++package com.macro.mall.sdc.e4;
+++
+++import com.macro.mall.portal.dao.PortalProductDao;
+++import com.macro.mall.portal.service.impl.OmsPromotionServiceImpl;
+++import org.junit.jupiter.api.Test;
+++import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+++
+++import java.util.Collections;
+++
+++import static org.mockito.Mockito.*;
+++
+++class PromotionWiringTest {
+++    @Test void springInjectsTheDaoIntoTheSingleConstructor() {
+++        PortalProductDao dao = mock(PortalProductDao.class, withSettings().mockMaker("mock-maker-subclass"));
+++        when(dao.getPromotionProductList(anyList())).thenReturn(Collections.emptyList());
+++        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+++            context.registerBean(PortalProductDao.class, () -> dao);
+++            context.register(OmsPromotionServiceImpl.class);
+++            context.refresh();
+++            context.getBean(OmsPromotionServiceImpl.class).calcCartPromotion(Collections.emptyList());
+++            verify(dao).getPromotionProductList(Collections.emptyList());
+++        }
+++    }
+++}
++diff --git a/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPromotionServiceImpl.java b/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPromotionServiceImpl.java
++index 0e7aa35b..a98316f6 100644
++--- a/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPromotionServiceImpl.java
+++++ b/mall-portal/src/main/java/com/macro/mall/portal/service/impl/OmsPromotionServiceImpl.java
++@@ -9,7 +9,6 @@ import com.macro.mall.portal.domain.CartPromotionItem;
++ import com.macro.mall.portal.domain.PromotionProduct;
++ import com.macro.mall.portal.service.OmsPromotionService;
++ import org.springframework.beans.BeanUtils;
++-import org.springframework.beans.factory.annotation.Autowired;
++ import org.springframework.stereotype.Service;
++ 
++ import java.math.BigDecimal;
++@@ -22,8 +21,11 @@ import java.util.*;
++  */
++ @Service
++ public class OmsPromotionServiceImpl implements OmsPromotionService {
++-    @Autowired
++-    private PortalProductDao portalProductDao;
+++    private final PortalProductDao portalProductDao;
+++
+++    public OmsPromotionServiceImpl(PortalProductDao portalProductDao) {
+++        this.portalProductDao = portalProductDao;
+++    }
++ 
++     @Override
++     public List<CartPromotionItem> calcCartPromotion(List<OmsCartItem> cartItemList) {
++diff --git "a/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/\346\224\271\345\211\215\346\227\245\345\277\227.log" "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/\346\224\271\345\211\215\346\227\245\345\277\227.log"
++new file mode 100644
++index 00000000..d527a112
++--- /dev/null
+++++ "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/\346\224\271\345\211\215\346\227\245\345\277\227.log"
++@@ -0,0 +1,164 @@
+++[INFO] Scanning for projects...
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Reactor Build Order:
+++[INFO] 
+++[INFO] mall                                                               [pom]
+++[INFO] mall-common                                                        [jar]
+++[INFO] mall-mbg                                                           [jar]
+++[INFO] mall-security                                                      [jar]
+++[INFO] mall-portal                                                        [jar]
+++[INFO] SDC - software design and conventions                              [pom]
+++[INFO] SDC E4                                                             [jar]
+++[INFO] 
+++[INFO] ------------------------< com.macro.mall:mall >-------------------------
+++[INFO] Building mall 1.0-SNAPSHOT                                         [1/7]
+++[INFO]   from pom.xml
+++[INFO] --------------------------------[ pom ]---------------------------------
+++[INFO] 
+++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
+++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/7]
+++[INFO]   from mall-common/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
+++[INFO] Copying 0 resource from src/main/resources to target/classes
+++[INFO] Copying 1 resource from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
+++[INFO] Recompiling the module because of changed source code.
+++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-common/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
+++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/7]
+++[INFO]   from mall-mbg/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
+++[INFO] Copying 0 resource from src/main/resources to target/classes
+++[INFO] Copying 78 resources from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 230 source files with javac [debug parameters release 17] to target/classes
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-mbg/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] --------------------< com.macro.mall:mall-security >--------------------
+++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/7]
+++[INFO]   from mall-security/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
+++[INFO] /private/tmp/mall-e4-00-di/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 某些输入文件使用或覆盖了已过时的 API。
+++[INFO] /private/tmp/mall-e4-00-di/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
+++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [5/7]
+++[INFO]   from mall-portal/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
+++[INFO] Copying 3 resources from src/main/resources to target/classes
+++[INFO] Copying 5 resources from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 94 source files with javac [debug parameters release 17] to target/classes
+++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java使用或覆盖了已过时的 API。
+++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-portal/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
+++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [6/7]
+++[INFO]   from SDC/pom.xml
+++[INFO] --------------------------------[ pom ]---------------------------------
+++[INFO] 
+++[INFO] -----------------------< com.macro.mall:sdc-e4 >------------------------
+++[INFO] Building SDC E4 1.0-SNAPSHOT                                       [7/7]
+++[INFO]   from SDC/E4/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e4 ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e4 ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e4 ---
+++[INFO] Copying 1 resource from src/test/resources to target/test-classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e4 ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 1 source file with javac [debug parameters release 17] to target/test-classes
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e4 ---
+++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+++[INFO] 
+++[INFO] -------------------------------------------------------
+++[INFO]  T E S T S
+++[INFO] -------------------------------------------------------
+++[INFO] Running com.macro.mall.sdc.e4.PromotionTest
+++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.79 s -- in com.macro.mall.sdc.e4.PromotionTest
+++[INFO] 
+++[INFO] Results:
+++[INFO] 
+++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+++[INFO] 
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
+++[INFO] 
+++[INFO] mall ............................................... SUCCESS [  0.001 s]
+++[INFO] mall-common ........................................ SUCCESS [  0.887 s]
+++[INFO] mall-mbg ........................................... SUCCESS [  1.379 s]
+++[INFO] mall-security ...................................... SUCCESS [  0.291 s]
+++[INFO] mall-portal ........................................ SUCCESS [  0.936 s]
+++[INFO] SDC - software design and conventions .............. SUCCESS [  0.001 s]
+++[INFO] SDC E4 ............................................. SUCCESS [ 11.228 s]
+++[INFO] ------------------------------------------------------------------------
+++[INFO] BUILD SUCCESS
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Total time:  14.875 s
+++[INFO] Finished at: 2026-11-02T10:08:58+08:00
+++[INFO] ------------------------------------------------------------------------
++diff --git "a/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/\346\224\271\345\220\216\346\227\245\345\277\227.log" "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/\346\224\271\345\220\216\346\227\245\345\277\227.log"
++new file mode 100644
++index 00000000..4944c818
++--- /dev/null
+++++ "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/\346\224\271\345\220\216\346\227\245\345\277\227.log"
++@@ -0,0 +1,161 @@
+++[INFO] Scanning for projects...
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Reactor Build Order:
+++[INFO] 
+++[INFO] mall                                                               [pom]
+++[INFO] mall-common                                                        [jar]
+++[INFO] mall-mbg                                                           [jar]
+++[INFO] mall-security                                                      [jar]
+++[INFO] mall-portal                                                        [jar]
+++[INFO] SDC - software design and conventions                              [pom]
+++[INFO] SDC E4                                                             [jar]
+++[INFO] 
+++[INFO] ------------------------< com.macro.mall:mall >-------------------------
+++[INFO] Building mall 1.0-SNAPSHOT                                         [1/7]
+++[INFO]   from pom.xml
+++[INFO] --------------------------------[ pom ]---------------------------------
+++[INFO] 
+++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
+++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/7]
+++[INFO]   from mall-common/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
+++[INFO] Copying 0 resource from src/main/resources to target/classes
+++[INFO] Copying 1 resource from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
+++[INFO] Nothing to compile - all classes are up to date.
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-common/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
+++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/7]
+++[INFO]   from mall-mbg/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
+++[INFO] Copying 0 resource from src/main/resources to target/classes
+++[INFO] Copying 78 resources from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
+++[INFO] Nothing to compile - all classes are up to date.
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-mbg/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] --------------------< com.macro.mall:mall-security >--------------------
+++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/7]
+++[INFO]   from mall-security/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
+++[INFO] Nothing to compile - all classes are up to date.
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
+++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [5/7]
+++[INFO]   from mall-portal/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
+++[INFO] Copying 3 resources from src/main/resources to target/classes
+++[INFO] Copying 5 resources from src/main/resources to target/classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
+++[INFO] Recompiling the module because of changed source code.
+++[INFO] Compiling 94 source files with javac [debug parameters release 17] to target/classes
+++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java使用或覆盖了已过时的 API。
+++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-portal/src/test/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
+++[INFO] Tests are skipped.
+++[INFO] 
+++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
+++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [6/7]
+++[INFO]   from SDC/pom.xml
+++[INFO] --------------------------------[ pom ]---------------------------------
+++[INFO] 
+++[INFO] -----------------------< com.macro.mall:sdc-e4 >------------------------
+++[INFO] Building SDC E4 1.0-SNAPSHOT                                       [7/7]
+++[INFO]   from SDC/E4/pom.xml
+++[INFO] --------------------------------[ jar ]---------------------------------
+++[INFO] 
+++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e4 ---
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
+++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
+++[INFO] 
+++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e4 ---
+++[INFO] No sources to compile
+++[INFO] 
+++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e4 ---
+++[INFO] Copying 1 resource from src/test/resources to target/test-classes
+++[INFO] 
+++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e4 ---
+++[INFO] Recompiling the module because of changed dependency.
+++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
+++[INFO] 
+++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e4 ---
+++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+++[INFO] 
+++[INFO] -------------------------------------------------------
+++[INFO]  T E S T S
+++[INFO] -------------------------------------------------------
+++[INFO] Running com.macro.mall.sdc.e4.PromotionWiringTest
+++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.83 s -- in com.macro.mall.sdc.e4.PromotionWiringTest
+++[INFO] Running com.macro.mall.sdc.e4.PromotionTest
+++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.009 s -- in com.macro.mall.sdc.e4.PromotionTest
+++[INFO] 
+++[INFO] Results:
+++[INFO] 
+++[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+++[INFO] 
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
+++[INFO] 
+++[INFO] mall ............................................... SUCCESS [  0.001 s]
+++[INFO] mall-common ........................................ SUCCESS [  0.268 s]
+++[INFO] mall-mbg ........................................... SUCCESS [  0.078 s]
+++[INFO] mall-security ...................................... SUCCESS [  0.019 s]
+++[INFO] mall-portal ........................................ SUCCESS [  1.413 s]
+++[INFO] SDC - software design and conventions .............. SUCCESS [  0.000 s]
+++[INFO] SDC E4 ............................................. SUCCESS [ 11.294 s]
+++[INFO] ------------------------------------------------------------------------
+++[INFO] BUILD SUCCESS
+++[INFO] ------------------------------------------------------------------------
+++[INFO] Total time:  13.214 s
+++[INFO] Finished at: 2026-11-02T10:09:52+08:00
+++[INFO] ------------------------------------------------------------------------
+diff --git "a/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/\346\224\271\345\211\215\346\227\245\345\277\227.log" "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/\346\224\271\345\211\215\346\227\245\345\277\227.log"
+new file mode 100644
+index 00000000..d527a112
+--- /dev/null
++++ "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/\346\224\271\345\211\215\346\227\245\345\277\227.log"
+@@ -0,0 +1,164 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-portal                                                        [jar]
++[INFO] SDC - software design and conventions                              [pom]
++[INFO] SDC E4                                                             [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/7]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/7]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Recompiling the module because of changed source code.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/7]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 230 source files with javac [debug parameters release 17] to target/classes
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/7]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 14 source files with javac [debug parameters release 17] to target/classes
++[INFO] /private/tmp/mall-e4-00-di/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 某些输入文件使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e4-00-di/mall-security/src/main/java/com/macro/mall/security/component/DynamicAuthorizationManager.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [5/7]
++[INFO]   from mall-portal/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 5 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 94 source files with javac [debug parameters release 17] to target/classes
++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-portal/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [6/7]
++[INFO]   from SDC/pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] -----------------------< com.macro.mall:sdc-e4 >------------------------
++[INFO] Building SDC E4 1.0-SNAPSHOT                                       [7/7]
++[INFO]   from SDC/E4/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e4 ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e4 ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e4 ---
++[INFO] Copying 1 resource from src/test/resources to target/test-classes
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e4 ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 1 source file with javac [debug parameters release 17] to target/test-classes
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e4 ---
++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
++[INFO] 
++[INFO] -------------------------------------------------------
++[INFO]  T E S T S
++[INFO] -------------------------------------------------------
++[INFO] Running com.macro.mall.sdc.e4.PromotionTest
++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.79 s -- in com.macro.mall.sdc.e4.PromotionTest
++[INFO] 
++[INFO] Results:
++[INFO] 
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
++[INFO] 
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.001 s]
++[INFO] mall-common ........................................ SUCCESS [  0.887 s]
++[INFO] mall-mbg ........................................... SUCCESS [  1.379 s]
++[INFO] mall-security ...................................... SUCCESS [  0.291 s]
++[INFO] mall-portal ........................................ SUCCESS [  0.936 s]
++[INFO] SDC - software design and conventions .............. SUCCESS [  0.001 s]
++[INFO] SDC E4 ............................................. SUCCESS [ 11.228 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD SUCCESS
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  14.875 s
++[INFO] Finished at: 2026-11-02T10:08:58+08:00
++[INFO] ------------------------------------------------------------------------
+diff --git "a/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/\346\224\271\345\220\216\346\227\245\345\277\227.log" "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/\346\224\271\345\220\216\346\227\245\345\277\227.log"
+new file mode 100644
+index 00000000..4944c818
+--- /dev/null
++++ "b/\346\210\220\346\236\234/Issue\345\217\202\350\200\203\347\255\224\346\241\210/E4-00-DI/\346\224\271\345\220\216\346\227\245\345\277\227.log"
+@@ -0,0 +1,161 @@
++[INFO] Scanning for projects...
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Build Order:
++[INFO] 
++[INFO] mall                                                               [pom]
++[INFO] mall-common                                                        [jar]
++[INFO] mall-mbg                                                           [jar]
++[INFO] mall-security                                                      [jar]
++[INFO] mall-portal                                                        [jar]
++[INFO] SDC - software design and conventions                              [pom]
++[INFO] SDC E4                                                             [jar]
++[INFO] 
++[INFO] ------------------------< com.macro.mall:mall >-------------------------
++[INFO] Building mall 1.0-SNAPSHOT                                         [1/7]
++[INFO]   from pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-common >---------------------
++[INFO] Building mall-common 1.0-SNAPSHOT                                  [2/7]
++[INFO]   from mall-common/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-common ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 1 resource from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-common ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-common ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-common/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-common ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-common ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] ----------------------< com.macro.mall:mall-mbg >-----------------------
++[INFO] Building mall-mbg 1.0-SNAPSHOT                                     [3/7]
++[INFO]   from mall-mbg/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-mbg ---
++[INFO] Copying 0 resource from src/main/resources to target/classes
++[INFO] Copying 78 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-mbg ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-mbg ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-mbg/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-mbg ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-mbg ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] --------------------< com.macro.mall:mall-security >--------------------
++[INFO] Building mall-security 1.0-SNAPSHOT                                [4/7]
++[INFO]   from mall-security/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-security ---
++[INFO] Nothing to compile - all classes are up to date.
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-security ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-security/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-security ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-security ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] ---------------------< com.macro.mall:mall-portal >---------------------
++[INFO] Building mall-portal 1.0-SNAPSHOT                                  [5/7]
++[INFO]   from mall-portal/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ mall-portal ---
++[INFO] Copying 3 resources from src/main/resources to target/classes
++[INFO] Copying 5 resources from src/main/resources to target/classes
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ mall-portal ---
++[INFO] Recompiling the module because of changed source code.
++[INFO] Compiling 94 source files with javac [debug parameters release 17] to target/classes
++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java使用或覆盖了已过时的 API。
++[INFO] /private/tmp/mall-e4-00-di/mall-portal/src/main/java/com/macro/mall/portal/config/JacksonConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ mall-portal ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/mall-portal/src/test/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ mall-portal ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ mall-portal ---
++[INFO] Tests are skipped.
++[INFO] 
++[INFO] -------------------------< com.macro.mall:sdc >-------------------------
++[INFO] Building SDC - software design and conventions 1.0-SNAPSHOT        [6/7]
++[INFO]   from SDC/pom.xml
++[INFO] --------------------------------[ pom ]---------------------------------
++[INFO] 
++[INFO] -----------------------< com.macro.mall:sdc-e4 >------------------------
++[INFO] Building SDC E4 1.0-SNAPSHOT                                       [7/7]
++[INFO]   from SDC/E4/pom.xml
++[INFO] --------------------------------[ jar ]---------------------------------
++[INFO] 
++[INFO] --- resources:3.3.1:resources (default-resources) @ sdc-e4 ---
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
++[INFO] skip non existing resourceDirectory /private/tmp/mall-e4-00-di/SDC/E4/src/main/resources
++[INFO] 
++[INFO] --- compiler:3.14.1:compile (default-compile) @ sdc-e4 ---
++[INFO] No sources to compile
++[INFO] 
++[INFO] --- resources:3.3.1:testResources (default-testResources) @ sdc-e4 ---
++[INFO] Copying 1 resource from src/test/resources to target/test-classes
++[INFO] 
++[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ sdc-e4 ---
++[INFO] Recompiling the module because of changed dependency.
++[INFO] Compiling 2 source files with javac [debug parameters release 17] to target/test-classes
++[INFO] 
++[INFO] --- surefire:3.5.5:test (default-test) @ sdc-e4 ---
++[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
++[INFO] 
++[INFO] -------------------------------------------------------
++[INFO]  T E S T S
++[INFO] -------------------------------------------------------
++[INFO] Running com.macro.mall.sdc.e4.PromotionWiringTest
++Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.83 s -- in com.macro.mall.sdc.e4.PromotionWiringTest
++[INFO] Running com.macro.mall.sdc.e4.PromotionTest
++[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.009 s -- in com.macro.mall.sdc.e4.PromotionTest
++[INFO] 
++[INFO] Results:
++[INFO] 
++[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
++[INFO] 
++[INFO] ------------------------------------------------------------------------
++[INFO] Reactor Summary for mall 1.0-SNAPSHOT:
++[INFO] 
++[INFO] mall ............................................... SUCCESS [  0.001 s]
++[INFO] mall-common ........................................ SUCCESS [  0.268 s]
++[INFO] mall-mbg ........................................... SUCCESS [  0.078 s]
++[INFO] mall-security ...................................... SUCCESS [  0.019 s]
++[INFO] mall-portal ........................................ SUCCESS [  1.413 s]
++[INFO] SDC - software design and conventions .............. SUCCESS [  0.000 s]
++[INFO] SDC E4 ............................................. SUCCESS [ 11.294 s]
++[INFO] ------------------------------------------------------------------------
++[INFO] BUILD SUCCESS
++[INFO] ------------------------------------------------------------------------
++[INFO] Total time:  13.214 s
++[INFO] Finished at: 2026-11-02T10:09:52+08:00
++[INFO] ------------------------------------------------------------------------

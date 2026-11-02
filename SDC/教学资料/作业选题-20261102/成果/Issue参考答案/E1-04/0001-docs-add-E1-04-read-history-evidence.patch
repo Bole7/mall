@@ -1,0 +1,252 @@
+diff --git a/SDC/E1/answers/E1-04/ISSUE.md b/SDC/E1/answers/E1-04/ISSUE.md
+new file mode 100644
+index 00000000..64e2162b
+--- /dev/null
++++ b/SDC/E1/answers/E1-04/ISSUE.md
+@@ -0,0 +1,39 @@
++# E1-04 浏览记录行为分析
++
++## 目标
++
++依据真实服务代码分析浏览记录的 create/list/clear 数据流，解释会员数据归属、分页参数、时间倒序和清空范围；再与商品收藏对照事件记录和当前状态，判断重复浏览行为。
++
++## 学习者任务
++
++1. 画出 create、list、clear 的调用或数据流，并标记当前会员信息的来源。
++2. 说明 create 如何处理请求中的会员 ID、记录 ID、创建时间和商品 ID；分别说明 `mongo.insert.sqlEnable` 开关两侧的商品快照来源与校验。
++3. 追踪 `pageNum=1,pageSize=5` 如何传到 Spring Data，并说明列表的会员过滤、时间顺序和 clear 的删除条件。
++4. 对照 E1-03 收藏，至少指出两项经代码支持的行为差异；说明相同商品重复浏览是否会追加记录，并提供方法依据。
++5. 区分单元/Mock 证据和真实 Mongo、SQL 集成证据，不把模拟调用描述成数据库执行结果。
++
++## 验收证据
++
++- 对应方法及字段的源码引用。
++- 至少两项收藏与浏览记录的实际差异。
++- 对重复浏览语义的明确结论与调用证据。
++- 通过 Mockito 对真实 service 实现的测试，验证当前会员、时间/ID、分页/排序调用、会员清空条件及保存次数。
++- 说明未启动 Mongo/SQL 时结论的边界。
++
++## 非目标
++
++不修改 mall 产品代码，不实现浏览历史功能，不将结果扩展到批量删除、清理策略或端到端数据库验证。
++
++
++## 已发布学习参考答案
++
++- [答案说明、源码依据和验证记录](https://github.com/meng004/mall/tree/exp/e1-04/SDC/E1/answers/E1-04)
++- [独立参考分支](https://github.com/meng004/mall/tree/exp/e1-04)
++- 基线：`7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`；不创建PR，不合入mall主线。
++- JDK 26 定向验证：8（新增5、已有3）项通过，0失败/错误/跳过。仅证明源码和Mock调用，不证明真实DB/事务/HTTP链路。
++
++```sh
++git clone --branch exp/e1-04 --single-branch https://github.com/meng004/mall.git mall-e1-04
++cd mall-e1-04
++mvn -pl SDC/E1 -am -Dtest=MemberReadHistoryBehaviorTest,MallFactsTest -Dsurefire.failIfNoSpecifiedTests=false -DskipTests=false -Dmaven.compiler.proc=full test
++```
+diff --git a/SDC/E1/answers/E1-04/README.md b/SDC/E1/answers/E1-04/README.md
+new file mode 100644
+index 00000000..47e2b488
+--- /dev/null
++++ b/SDC/E1/answers/E1-04/README.md
+@@ -0,0 +1,43 @@
++# E1-04 浏览记录：教师参考答案
++
++## 范围与结论
++
++只分析门户侧浏览记录的新增、列表和清空：`MemberReadHistoryServiceImpl#create/list/clear`。调用方可以提交商品 ID 和商品快照字段；服务端把当前会员 ID、昵称、头像写回记录，重置客户端 ID，并生成当前时间。只要商品 ID 不为空且可选的商品校验通过，每次调用都会 `save` 一条新记录，没有按会员和商品去重，所以重复浏览会新增事件。
++
++```mermaid
++flowchart LR
++  A[POST /member/readHistory/create] --> B[Service: 校验 productId]
++  B --> C[读取当前会员并覆盖会员快照、ID、时间]
++  C --> D{mongo.insert.sqlEnable}
++  D -->|true| E[MySQL 查询商品并拒绝不存在或已删除商品]
++  D -->|false| F[使用请求中的商品快照]
++  E --> G[Mongo Repository save]
++  F --> G
++  H[GET /member/readHistory/list] --> I[当前会员 + PageRequest(pageNum-1,pageSize)]
++  I --> J[按 createTime DESC 分页]
++  K[POST /member/readHistory/clear] --> L[按当前会员 ID 删除全部记录]
++```
++
++## 代码依据
++
++- [控制器 `MemberReadHistoryController`](../../../../mall-portal/src/main/java/com/macro/mall/portal/controller/MemberReadHistoryController.java)：`:29-40` 暴露 create；`:53-58` 暴露无参数 clear；`:62-68` 列表默认 `pageNum=1`、`pageSize=5`。
++- [服务 `MemberReadHistoryServiceImpl`](../../../../mall-portal/src/main/java/com/macro/mall/portal/service/impl/MemberReadHistoryServiceImpl.java)：`:37-59` 空商品 ID 早退、从 `getCurrentMember()` 覆盖会员信息、清除客户端 ID、`new Date()`、配置开启时查 SQL 商品并排除不存在/已删除商品，最后每次调用 `save`；`:74-78` 页码减一并调用按创建时间倒序的会员查询；`:81-84` 只按当前会员 ID 清空。
++- [Repository `MemberReadHistoryRepository`](../../../../mall-portal/src/main/java/com/macro/mall/portal/repository/MemberReadHistoryRepository.java)：`:16-21` 定义会员条件分页倒序查询和按会员删除。
++- [记录模型 `MemberReadHistory`](../../../../mall-portal/src/main/java/com/macro/mall/portal/domain/MemberReadHistory.java)：`:17-33` 包含会员、商品快照与 `createTime`，使用 Mongo `@Document`；会员 ID 与商品 ID 有索引。
++- [收藏服务 `MemberCollectionServiceImpl`](../../../../mall-portal/src/main/java/com/macro/mall/portal/service/impl/MemberCollectionServiceImpl.java)：`:33-57` 先查当前会员与商品组合，已有收藏时不保存；`:67-71` 收藏列表分页但 Repository 查询未声明创建时间排序。它保存的是一份当前收藏状态，浏览记录是重复可追加的事件，因此两者至少在去重语义和排序语义上不同。
++
++## 行为验证
++
++`MemberReadHistoryBehaviorTest` 通过 Mockito 注入依赖并直接执行真实服务实现，不启动 Spring 容器，也不连接外部数据库。测试检查了当前会员字段覆盖、ID/时间重置、相同商品两次都调用 `save`、空商品 ID 早退、SQL 补全开启时不存在/已删除商品不保存、页码换算与时间倒序 Repository 方法、清空的会员 ID，以及收藏已存在时不保存而浏览仍追加。
++
++测试文件：`SDC/E1/src/test/java/com/macro/mall/sdc/e1/MemberReadHistoryBehaviorTest.java`。真实 Mongo 查询/删除执行、HTTP 序列化和数据库事务不在 Mock 证据范围内。
++
++## 可复现参考答案
++
++基线 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`；独立分支 `exp/e1-04`。
++
++```sh
++mvn -pl SDC/E1 -am -Dtest=MemberReadHistoryBehaviorTest,MallFactsTest -Dsurefire.failIfNoSpecifiedTests=false -DskipTests=false -Dmaven.compiler.proc=full test
++```
++
++本轮 JDK 26 定向测试 8（新增5、已有3） 项通过，0失败、0错误、0跳过。首次运行需要联网下载依赖；无须运行依赖数据库的全部测试。
+diff --git a/SDC/E1/answers/E1-04/test-log.md b/SDC/E1/answers/E1-04/test-log.md
+new file mode 100644
+index 00000000..d3dff153
+--- /dev/null
++++ b/SDC/E1/answers/E1-04/test-log.md
+@@ -0,0 +1,15 @@
++# E1-04 验证日志
++
++- 临时 checkout：`/private/tmp/mall-e1-04`
++- 基线：`7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`
++- 测试代码：`SDC/E1/src/test/java/com/macro/mall/sdc/e1/MemberReadHistoryBehaviorTest.java`
++- JDK：Homebrew OpenJDK `26.0.1`；项目 compiler 以 `--release 17` 编译。
++- fresh 命令：
++
++```bash
++rtk proxy env JAVA_HOME=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home PATH=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home/bin:/opt/homebrew/bin:/usr/bin mvn -f pom.xml -pl SDC/E1 -am clean test -DskipTests=false -Dtest=MemberReadHistoryBehaviorTest,MallFactsTest -Dsurefire.failIfNoSpecifiedTests=false -Dmaven.compiler.proc=full
++```
++
++- 结果：`BUILD SUCCESS`；`MemberReadHistoryBehaviorTest` 5 项、`MallFactsTest` 3 项通过，0 failure、0 error、0 skipped。Reactor 中 mall-common、mall-mbg、mall-security、mall-portal、SDC 和 SDC/E1 均成功。
++- 边界：通过 Mockito 验证真实 service 实现与下游调用参数；未运行 mall-portal 的数据库集成测试。完整 `clean test` 曾在 portal 集成测试因缺少本地应用环境配置而失败，故此次只选择 E1 单元测试。
++- JDK 26 的初始 fresh 编译需要 `-Dmaven.compiler.proc=full` 才能触发项目 Lombok 注解处理；Mock 测试使用 Mockito subclass mock maker，避免 JDK 26 外部 agent attach 依赖。
+diff --git a/SDC/E1/pom.xml b/SDC/E1/pom.xml
+index f245616b..d54aeca3 100644
+--- a/SDC/E1/pom.xml
++++ b/SDC/E1/pom.xml
+@@ -4,4 +4,10 @@
+   <parent><groupId>com.macro.mall</groupId><artifactId>sdc</artifactId><version>1.0-SNAPSHOT</version></parent>
+   <artifactId>sdc-e1</artifactId><name>SDC E1</name>
+ 
++  <dependencies>
++    <dependency><groupId>com.macro.mall</groupId><artifactId>mall-portal</artifactId><version>${project.version}</version><scope>test</scope></dependency>
++    <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><scope>test</scope></dependency>
++    <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
++  </dependencies>
++
+ </project>
+diff --git a/SDC/E1/src/test/java/com/macro/mall/sdc/e1/MemberReadHistoryBehaviorTest.java b/SDC/E1/src/test/java/com/macro/mall/sdc/e1/MemberReadHistoryBehaviorTest.java
+new file mode 100644
+index 00000000..95f7710f
+--- /dev/null
++++ b/SDC/E1/src/test/java/com/macro/mall/sdc/e1/MemberReadHistoryBehaviorTest.java
+@@ -0,0 +1,109 @@
++package com.macro.mall.sdc.e1;
++
++import com.macro.mall.mapper.PmsProductMapper;
++import com.macro.mall.model.PmsProduct;
++import com.macro.mall.model.UmsMember;
++import com.macro.mall.portal.domain.MemberProductCollection;
++import com.macro.mall.portal.domain.MemberReadHistory;
++import com.macro.mall.portal.repository.MemberProductCollectionRepository;
++import com.macro.mall.portal.repository.MemberReadHistoryRepository;
++import com.macro.mall.portal.service.UmsMemberService;
++import com.macro.mall.portal.service.impl.MemberCollectionServiceImpl;
++import com.macro.mall.portal.service.impl.MemberReadHistoryServiceImpl;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.Test;
++import org.springframework.data.domain.PageRequest;
++import org.springframework.data.domain.Pageable;
++import org.springframework.test.util.ReflectionTestUtils;
++
++import java.util.Date;
++import java.util.List;
++
++import static org.junit.jupiter.api.Assertions.*;
++import static org.mockito.ArgumentMatchers.*;
++import static org.mockito.Mockito.*;
++
++class MemberReadHistoryBehaviorTest {
++    private final PmsProductMapper products = mock(PmsProductMapper.class);
++    private final MemberReadHistoryRepository histories = mock(MemberReadHistoryRepository.class);
++    private final MemberProductCollectionRepository collections = mock(MemberProductCollectionRepository.class);
++    private final UmsMemberService members = mock(UmsMemberService.class);
++    private final MemberReadHistoryServiceImpl historyService = new MemberReadHistoryServiceImpl();
++    private final MemberCollectionServiceImpl collectionService = new MemberCollectionServiceImpl();
++    private final UmsMember member = new UmsMember();
++
++    @BeforeEach void setUp() {
++        member.setId(42L);
++        member.setNickname("member-42");
++        member.setIcon("icon.png");
++        when(members.getCurrentMember()).thenReturn(member);
++        ReflectionTestUtils.setField(historyService, "memberService", members);
++        ReflectionTestUtils.setField(historyService, "memberReadHistoryRepository", histories);
++        ReflectionTestUtils.setField(historyService, "productMapper", products);
++        ReflectionTestUtils.setField(historyService, "sqlEnable", false);
++        ReflectionTestUtils.setField(collectionService, "memberService", members);
++        ReflectionTestUtils.setField(collectionService, "productCollectionRepository", collections);
++        ReflectionTestUtils.setField(collectionService, "productMapper", products);
++        ReflectionTestUtils.setField(collectionService, "sqlEnable", false);
++    }
++
++    @Test void createOverwritesIdentityAndTimeAndAllowsRepeatedEvents() {
++        MemberReadHistory supplied = new MemberReadHistory();
++        supplied.setId("client-id");
++        supplied.setMemberId(7L);
++        supplied.setProductId(9L);
++        Date before = new Date();
++        assertEquals(1, historyService.create(supplied));
++        Date after = new Date();
++        assertEquals(42L, supplied.getMemberId());
++        assertEquals("member-42", supplied.getMemberNickname());
++        assertEquals("icon.png", supplied.getMemberIcon());
++        assertNull(supplied.getId());
++        assertNotNull(supplied.getCreateTime());
++        assertFalse(supplied.getCreateTime().before(before) || supplied.getCreateTime().after(after));
++        assertEquals(1, historyService.create(newHistory(9L)));
++        verify(histories, times(2)).save(any(MemberReadHistory.class));
++        verify(products, never()).selectByPrimaryKey(anyLong());
++    }
++
++    @Test void createRejectsMissingOrUnavailableProductsWhenSqlEnrichmentIsEnabled() {
++        assertEquals(0, historyService.create(new MemberReadHistory()));
++        verify(members, never()).getCurrentMember();
++        ReflectionTestUtils.setField(historyService, "sqlEnable", true);
++        when(products.selectByPrimaryKey(9L)).thenReturn(null);
++        assertEquals(0, historyService.create(newHistory(9L)));
++        PmsProduct deleted = new PmsProduct();
++        deleted.setDeleteStatus(1);
++        when(products.selectByPrimaryKey(10L)).thenReturn(deleted);
++        assertEquals(0, historyService.create(newHistory(10L)));
++        verify(histories, never()).save(any(MemberReadHistory.class));
++    }
++
++    @Test void listUsesCurrentMemberZeroBasedPageAndDescendingTimeRepositoryMethod() {
++        Pageable expected = PageRequest.of(2, 7);
++        historyService.list(3, 7);
++        verify(histories).findByMemberIdOrderByCreateTimeDesc(42L, expected);
++    }
++
++    @Test void clearDeletesOnlyCurrentMembersHistory() {
++        historyService.clear();
++        verify(histories).deleteAllByMemberId(42L);
++    }
++
++    @Test void collectionDeduplicatesWhereHistoryRecordsEachVisit() {
++        MemberProductCollection collection = new MemberProductCollection();
++        collection.setProductId(9L);
++        when(collections.findByMemberIdAndProductId(42L, 9L)).thenReturn(new MemberProductCollection());
++        assertEquals(0, collectionService.add(collection));
++        verify(collections, never()).save(any(MemberProductCollection.class));
++        assertEquals(1, historyService.create(newHistory(9L)));
++        verify(histories).save(any(MemberReadHistory.class));
++        verify(collections).findByMemberIdAndProductId(42L, 9L);
++    }
++
++    private static MemberReadHistory newHistory(Long productId) {
++        MemberReadHistory history = new MemberReadHistory();
++        history.setProductId(productId);
++        return history;
++    }
++}
+diff --git a/SDC/E1/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker b/SDC/E1/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker
+new file mode 100644
+index 00000000..fdbd0b15
+--- /dev/null
++++ b/SDC/E1/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker
+@@ -0,0 +1 @@
++mock-maker-subclass

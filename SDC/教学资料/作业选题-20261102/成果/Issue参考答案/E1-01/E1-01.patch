@@ -1,0 +1,266 @@
+diff --git a/SDC/E1/outputs/E1-01/ISSUE.md b/SDC/E1/outputs/E1-01/ISSUE.md
+new file mode 100644
+index 00000000..af0523fc
+--- /dev/null
++++ b/SDC/E1/outputs/E1-01/ISSUE.md
+@@ -0,0 +1,24 @@
++# [E1-01] 会员领取优惠券：调用链与数据流观察
++
++## 目标
++
++沿会员领券入口追踪当前会员身份、领券资格检查、历史写入、券数量更新及历史查询。说明手写服务与生成 Mapper 的边界，并标出两次写入和事务声明位置。
++
++## 范围
++
++- 只覆盖一次领券和 `listHistory` 查询，不延伸到订单结算。
++- 不修改产品代码；可增加本题观察测试及说明材料。
++- 不把 Mock 结果作为数据库或事务回滚证据。
++
++## 验收
++
++- [ ] 标出 `/member/coupon/add/{couponId}` 与 `/member/coupon/listHistory` 控制器入口及服务调用链。
++- [ ] 说明当前会员来源、优惠券数量／领取时间／限领次数检查。
++- [ ] 观察一次成功路径中的历史插入和券数量更新，列出两者各自改变的数据。
++- [ ] 说明 `add` 接口方法上的 `@Transactional`；区分源码声明与运行时事务验证。
++- [ ] 说明 `listHistory` 按当前会员筛选，并可附加 `useStatus` 条件。
++- [ ] 提供一项本地可重复运行的观察／断言和实际命令结果；注明 Mock 未覆盖数据库与事务。
++
++## 参考基线
++
++`7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`。参考答案见同目录 `README.md`，本轮测试日志见 `evidence/test.log`。
+diff --git a/SDC/E1/outputs/E1-01/README.md b/SDC/E1/outputs/E1-01/README.md
+new file mode 100644
+index 00000000..39e0a0b8
+--- /dev/null
++++ b/SDC/E1/outputs/E1-01/README.md
+@@ -0,0 +1,46 @@
++# E1-01 会员领取优惠券：参考答案
++
++## 范围
++
++本材料基于 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`，只分析一次会员领券及领券历史查询，不修改产品代码，也不延伸到订单结算。对应候选条目要求读取当前会员、检查券数量／领取时间／限领次数、写领取历史并更新券数量；最低产物是调用与数据流图及两次写操作的边界说明。
++
++## 调用与数据流
++
++```text
++POST /member/coupon/add/{couponId}
++  UmsMemberCouponController.add(couponId)
++    -> UmsMemberCouponService.add(couponId) [接口方法有 @Transactional]
++      -> UmsMemberCouponServiceImpl.add
++        -> memberService.getCurrentMember()
++        -> couponMapper.selectByPrimaryKey(couponId)
++        -> couponHistoryMapper.countByExample(couponId, currentMember.id)
++        -> couponHistoryMapper.insert(SmsCouponHistory)
++        -> couponMapper.updateByPrimaryKey(SmsCoupon)
++
++GET /member/coupon/listHistory?useStatus=...
++  UmsMemberCouponController.listHistory(useStatus)
++    -> UmsMemberCouponService.listHistory(useStatus)
++      -> UmsMemberCouponServiceImpl.listHistory
++        -> memberService.getCurrentMember()
++        -> couponHistoryMapper.selectByExample(memberId[, useStatus])
++```
++
++实现位置和本基线行号：控制器入口见 `mall-portal/src/main/java/com/macro/mall/portal/controller/UmsMemberCouponController.java:37`、`:45`；接口及 `add` 的事务声明见 `mall-portal/src/main/java/com/macro/mall/portal/service/UmsMemberCouponService.java:15`；服务读取会员、券和资格条件见 `mall-portal/src/main/java/com/macro/mall/portal/service/impl/UmsMemberCouponServiceImpl.java:43`；历史对象构造与插入见同文件 `:64`；券库存及领取数更新见 `:76`；历史查询按当前会员及可选使用状态过滤见 `:102`。
++
++## 两次写入与事务边界
++
++一次成功领取依次调用 `SmsCouponHistoryMapper.insert`（新建一条会员券历史，包含会员 ID、券 ID、券码、昵称、领取时间、主动领取类型和未使用状态）和 `SmsCouponMapper.updateByPrimaryKey`（券剩余 `count` 减一、`receiveCount` 加一）。对应实现是 `UmsMemberCouponServiceImpl.java:75`、`:79`；Mapper 是生成接口，SQL 分别位于 `mall-mbg/src/main/resources/com/macro/mall/mapper/SmsCouponHistoryMapper.xml:109`、`mall-mbg/src/main/resources/com/macro/mall/mapper/SmsCouponMapper.xml:394`。生成 Mapper/XML 属于数据访问边界，不是本题手写业务入口。
++
++`add` 的 `@Transactional` 写在 `UmsMemberCouponService` 接口方法上（基线 `:19`），实现类方法没有重复注解。结合 Spring 的注解事务机制，这为代理调用的事务边界提供源码证据；本材料的 Mockito 测试只观察 Java 调用和参数，不经过 Spring 事务代理或数据库，**不能证明两次 SQL 在运行时处于同一事务，也不能证明失败回滚**。要确认运行事务行为，需另做 Spring 容器／真实事务管理器集成验证，并在事务中触发第二次写失败后检查数据库状态。
++
++## 已运行的观察
++
++`mall-portal/src/test/java/com/macro/mall/portal/sdc/SDCE101ReferenceTest.java` 使用已有 JUnit 5、Mockito 和 Spring Test 依赖创建服务实例。它断言当前会员 101 的领券历史先于券行更新；历史包含会员、券、领取状态与时间；券数量由 2 到 1、领取数量由 4 到 5；`listHistory(0)` 的查询条件限定会员 101 和未使用状态；并检查接口方法声明的事务注解。
++
++运行结果和完整 Maven 摘要见 `evidence/test.log`。这是 mock 单元观察，不是 HTTP、数据库或事务回滚验证。
++
++## 证据边界
++
++源码事实：入口路由、会员 ID 来源、资格检查条件、两次 mapper 调用顺序、历史查询过滤条件以及接口方法上的事务注解，均由本基线源码支撑。运行事实：上述 mock 测试本轮成功执行并检查了捕获到的调用／查询条件。未验证：Spring 事务代理是否在真实配置下生效、数据库提交／回滚、并发领券下限量是否严格，以及完整 HTTP 链路。
++
++候选库最低证据要求已覆盖调用链、一次模拟成功领取、历史查询、两次写入及事务声明边界。这里没有将注解或 mock 调用描述为实际事务执行证据。
+diff --git a/SDC/E1/outputs/E1-01/evidence/test.log b/SDC/E1/outputs/E1-01/evidence/test.log
+new file mode 100644
+index 00000000..402384cd
+--- /dev/null
++++ b/SDC/E1/outputs/E1-01/evidence/test.log
+@@ -0,0 +1,6 @@
++checkout: /private/tmp/mall-e1-01
++base: 7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8
++command: rtk proxy env JAVA_HOME=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home mvn -Dmaven.compiler.proc=full -DskipTests=false -pl mall-portal -am -Dtest=SDCE101ReferenceTest -Dsurefire.failIfNoSpecifiedTests=false test
++result: BUILD SUCCESS; mall-portal: Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
++scope: Mockito service observation only; no Spring application context, real database transaction, HTTP request, or rollback test.
++note: JDK 26 was used; explicit compiler proc=full enables Lombok annotation processing. Existing user checkout was not used for writes.
+diff --git a/SDC/answers/E1-01/ISSUE.md b/SDC/answers/E1-01/ISSUE.md
+new file mode 100644
+index 00000000..af0523fc
+--- /dev/null
++++ b/SDC/answers/E1-01/ISSUE.md
+@@ -0,0 +1,24 @@
++# [E1-01] 会员领取优惠券：调用链与数据流观察
++
++## 目标
++
++沿会员领券入口追踪当前会员身份、领券资格检查、历史写入、券数量更新及历史查询。说明手写服务与生成 Mapper 的边界，并标出两次写入和事务声明位置。
++
++## 范围
++
++- 只覆盖一次领券和 `listHistory` 查询，不延伸到订单结算。
++- 不修改产品代码；可增加本题观察测试及说明材料。
++- 不把 Mock 结果作为数据库或事务回滚证据。
++
++## 验收
++
++- [ ] 标出 `/member/coupon/add/{couponId}` 与 `/member/coupon/listHistory` 控制器入口及服务调用链。
++- [ ] 说明当前会员来源、优惠券数量／领取时间／限领次数检查。
++- [ ] 观察一次成功路径中的历史插入和券数量更新，列出两者各自改变的数据。
++- [ ] 说明 `add` 接口方法上的 `@Transactional`；区分源码声明与运行时事务验证。
++- [ ] 说明 `listHistory` 按当前会员筛选，并可附加 `useStatus` 条件。
++- [ ] 提供一项本地可重复运行的观察／断言和实际命令结果；注明 Mock 未覆盖数据库与事务。
++
++## 参考基线
++
++`7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`。参考答案见同目录 `README.md`，本轮测试日志见 `evidence/test.log`。
+diff --git a/SDC/answers/E1-01/README.md b/SDC/answers/E1-01/README.md
+new file mode 100644
+index 00000000..df7b668c
+--- /dev/null
++++ b/SDC/answers/E1-01/README.md
+@@ -0,0 +1,48 @@
++本题独立参考分支：`refs/heads/exp/e1-01`。仅作学习参考，不向 mall 主线创建或合并 PR。
++
++# E1-01 会员领取优惠券：参考答案
++
++## 范围
++
++本材料基于 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`，只分析一次会员领券及领券历史查询，不修改产品代码，也不延伸到订单结算。对应候选条目要求读取当前会员、检查券数量／领取时间／限领次数、写领取历史并更新券数量；最低产物是调用与数据流图及两次写操作的边界说明。
++
++## 调用与数据流
++
++```text
++POST /member/coupon/add/{couponId}
++  UmsMemberCouponController.add(couponId)
++    -> UmsMemberCouponService.add(couponId) [接口方法有 @Transactional]
++      -> UmsMemberCouponServiceImpl.add
++        -> memberService.getCurrentMember()
++        -> couponMapper.selectByPrimaryKey(couponId)
++        -> couponHistoryMapper.countByExample(couponId, currentMember.id)
++        -> couponHistoryMapper.insert(SmsCouponHistory)
++        -> couponMapper.updateByPrimaryKey(SmsCoupon)
++
++GET /member/coupon/listHistory?useStatus=...
++  UmsMemberCouponController.listHistory(useStatus)
++    -> UmsMemberCouponService.listHistory(useStatus)
++      -> UmsMemberCouponServiceImpl.listHistory
++        -> memberService.getCurrentMember()
++        -> couponHistoryMapper.selectByExample(memberId[, useStatus])
++```
++
++实现位置和本基线行号：控制器入口见 `mall-portal/src/main/java/com/macro/mall/portal/controller/UmsMemberCouponController.java:37`、`:45`；接口及 `add` 的事务声明见 `mall-portal/src/main/java/com/macro/mall/portal/service/UmsMemberCouponService.java:15`；服务读取会员、券和资格条件见 `mall-portal/src/main/java/com/macro/mall/portal/service/impl/UmsMemberCouponServiceImpl.java:43`；历史对象构造与插入见同文件 `:64`；券库存及领取数更新见 `:76`；历史查询按当前会员及可选使用状态过滤见 `:102`。
++
++## 两次写入与事务边界
++
++一次成功领取依次调用 `SmsCouponHistoryMapper.insert`（新建一条会员券历史，包含会员 ID、券 ID、券码、昵称、领取时间、主动领取类型和未使用状态）和 `SmsCouponMapper.updateByPrimaryKey`（券剩余 `count` 减一、`receiveCount` 加一）。对应实现是 `UmsMemberCouponServiceImpl.java:75`、`:79`；Mapper 是生成接口，SQL 分别位于 `mall-mbg/src/main/resources/com/macro/mall/mapper/SmsCouponHistoryMapper.xml:109`、`mall-mbg/src/main/resources/com/macro/mall/mapper/SmsCouponMapper.xml:394`。生成 Mapper/XML 属于数据访问边界，不是本题手写业务入口。
++
++`add` 的 `@Transactional` 写在 `UmsMemberCouponService` 接口方法上（基线 `:19`），实现类方法没有重复注解。结合 Spring 的注解事务机制，这为代理调用的事务边界提供源码证据；本材料的 Mockito 测试只观察 Java 调用和参数，不经过 Spring 事务代理或数据库，**不能证明两次 SQL 在运行时处于同一事务，也不能证明失败回滚**。要确认运行事务行为，需另做 Spring 容器／真实事务管理器集成验证，并在事务中触发第二次写失败后检查数据库状态。
++
++## 已运行的观察
++
++`mall-portal/src/test/java/com/macro/mall/portal/sdc/SDCE101ReferenceTest.java` 使用已有 JUnit 5、Mockito 和 Spring Test 依赖创建服务实例。它断言当前会员 101 的领券历史先于券行更新；历史包含会员、券、领取状态与时间；券数量由 2 到 1、领取数量由 4 到 5；`listHistory(0)` 的查询条件限定会员 101 和未使用状态；并检查接口方法声明的事务注解。
++
++运行结果和完整 Maven 摘要见 `evidence/test.log`。这是 mock 单元观察，不是 HTTP、数据库或事务回滚验证。
++
++## 证据边界
++
++源码事实：入口路由、会员 ID 来源、资格检查条件、两次 mapper 调用顺序、历史查询过滤条件以及接口方法上的事务注解，均由本基线源码支撑。运行事实：上述 mock 测试本轮成功执行并检查了捕获到的调用／查询条件。未验证：Spring 事务代理是否在真实配置下生效、数据库提交／回滚、并发领券下限量是否严格，以及完整 HTTP 链路。
++
++候选库最低证据要求已覆盖调用链、一次模拟成功领取、历史查询、两次写入及事务声明边界。这里没有将注解或 mock 调用描述为实际事务执行证据。
+diff --git a/SDC/answers/E1-01/evidence/test.log b/SDC/answers/E1-01/evidence/test.log
+new file mode 100644
+index 00000000..402384cd
+--- /dev/null
++++ b/SDC/answers/E1-01/evidence/test.log
+@@ -0,0 +1,6 @@
++checkout: /private/tmp/mall-e1-01
++base: 7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8
++command: rtk proxy env JAVA_HOME=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home mvn -Dmaven.compiler.proc=full -DskipTests=false -pl mall-portal -am -Dtest=SDCE101ReferenceTest -Dsurefire.failIfNoSpecifiedTests=false test
++result: BUILD SUCCESS; mall-portal: Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
++scope: Mockito service observation only; no Spring application context, real database transaction, HTTP request, or rollback test.
++note: JDK 26 was used; explicit compiler proc=full enables Lombok annotation processing. Existing user checkout was not used for writes.
+diff --git a/mall-portal/src/test/java/com/macro/mall/portal/sdc/SDCE101ReferenceTest.java b/mall-portal/src/test/java/com/macro/mall/portal/sdc/SDCE101ReferenceTest.java
+new file mode 100644
+index 00000000..4a653f96
+--- /dev/null
++++ b/mall-portal/src/test/java/com/macro/mall/portal/sdc/SDCE101ReferenceTest.java
+@@ -0,0 +1,70 @@
++package com.macro.mall.portal.sdc;
++
++import com.macro.mall.mapper.SmsCouponHistoryMapper;
++import com.macro.mall.mapper.SmsCouponMapper;
++import com.macro.mall.model.SmsCoupon;
++import com.macro.mall.model.SmsCouponHistory;
++import com.macro.mall.model.SmsCouponHistoryExample;
++import com.macro.mall.model.UmsMember;
++import com.macro.mall.portal.service.UmsMemberCouponService;
++import com.macro.mall.portal.service.UmsMemberService;
++import com.macro.mall.portal.service.impl.UmsMemberCouponServiceImpl;
++import org.junit.jupiter.api.Test;
++import org.springframework.test.util.ReflectionTestUtils;
++import org.springframework.transaction.annotation.Transactional;
++
++import java.util.Date;
++import java.util.List;
++
++import static org.junit.jupiter.api.Assertions.*;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.*;
++
++class SDCE101ReferenceTest {
++    @Test
++    void claimWritesMemberHistoryThenUpdatesCouponAndHistoryQueryUsesMember() throws Exception {
++        var service = new UmsMemberCouponServiceImpl();
++        var settings = withSettings().mockMaker("mock-maker-subclass");
++        var memberService = mock(UmsMemberService.class, settings);
++        var couponMapper = mock(SmsCouponMapper.class, settings);
++        var historyMapper = mock(SmsCouponHistoryMapper.class, settings);
++        var member = new UmsMember();
++        member.setId(101L);
++        member.setNickname("member-101");
++        when(memberService.getCurrentMember()).thenReturn(member);
++
++        var coupon = new SmsCoupon();
++        coupon.setId(7L);
++        coupon.setCount(2);
++        coupon.setPerLimit(1);
++        coupon.setEnableTime(new Date(0));
++        coupon.setReceiveCount(4);
++        when(couponMapper.selectByPrimaryKey(7L)).thenReturn(coupon);
++        when(historyMapper.countByExample(any())).thenReturn(0L);
++        when(historyMapper.selectByExample(any())).thenAnswer(invocation -> {
++            var example = invocation.<SmsCouponHistoryExample>getArgument(0);
++            var criteria = example.getOredCriteria().get(0).getAllCriteria();
++            assertTrue(criteria.stream().anyMatch(c -> c.getCondition().startsWith("member_id =") && c.getValue().equals(101L)));
++            assertTrue(criteria.stream().anyMatch(c -> c.getCondition().startsWith("use_status =") && c.getValue().equals(0)));
++            return List.of();
++        });
++        ReflectionTestUtils.setField(service, "memberService", memberService);
++        ReflectionTestUtils.setField(service, "couponMapper", couponMapper);
++        ReflectionTestUtils.setField(service, "couponHistoryMapper", historyMapper);
++
++        service.add(7L);
++
++        var order = inOrder(historyMapper, couponMapper);
++        order.verify(historyMapper).insert(argThat(h -> h.getCouponId().equals(7L)
++                && h.getMemberId().equals(101L) && h.getMemberNickname().equals("member-101")
++                && h.getGetType() == 1 && h.getUseStatus() == 0 && h.getCreateTime() != null));
++        order.verify(couponMapper).updateByPrimaryKey(coupon);
++        assertEquals(1, coupon.getCount());
++        assertEquals(5, coupon.getReceiveCount());
++
++        assertTrue(UmsMemberCouponService.class.getMethod("add", Long.class)
++                .isAnnotationPresent(Transactional.class));
++        assertEquals(List.of(), service.listHistory(0));
++        verify(historyMapper, times(1)).insert(any(SmsCouponHistory.class));
++    }
++}

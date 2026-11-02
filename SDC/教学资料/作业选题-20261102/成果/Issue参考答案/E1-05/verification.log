@@ -1,0 +1,9 @@
+checkout: /private/tmp/mall-e1-05
+base: 7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8
+head: e4ec0a8623b4c56b56cc03a2c89bb9354926a2bd
+java: /opt/homebrew/opt/openjdk@17/bin/java (17.0.19); JDK 26 was not available in this environment
+command: JAVA_HOME=/opt/homebrew/opt/openjdk@17 PATH=/opt/homebrew/opt/openjdk@17/bin:$PATH mvn -pl mall-admin -am -DskipTests=false -Dmaven.compiler.proc=full -Dtest=E105BrandUpdateTest -Dsurefire.failIfNoSpecifiedTests=false test
+result: BUILD SUCCESS; Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+scope: Mock Mapper parameter capture and call-order observation through the real PmsBrandServiceImpl
+not verified: real SQL, database state, Spring transaction proxy/rollback, HTTP, search index, concurrency
+note: first run hit Mockito inline agent self-attach failure on local JDK 17; test-scoped mock-maker-subclass resource fixed the test runner without changing production code
