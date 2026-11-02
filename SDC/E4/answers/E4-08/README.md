@@ -1,5 +1,7 @@
 # E4-08 管理员与缓存循环依赖
 
+参考分支：[exp/e4-08](https://github.com/meng004/mall/tree/exp/e4-08)；答案目录：[SDC/E4/answers/E4-08](https://github.com/meng004/mall/tree/exp/e4-08/SDC/E4/answers/E4-08)。仅作学习参考，不创建 PR，不合入 mall 主线。
+
 ## 结论
 
 采用缓存实现直接依赖 `UmsAdminMapper`。`delAdmin(id)` 仍在失效时按 ID 查询管理员并用用户名拼出原缓存 key；管理员不存在时仍不调用 Redis。管理员业务服务以构造器注入 `UmsAdminCacheService`，删除 `UmsAdminService.getCacheService()` 和 `SpringUtil` 定位。
@@ -44,12 +46,22 @@ UmsAdminServiceImpl --> UmsAdminMapper
 
 本次隔离 checkout：`/private/tmp/mall-e408`。本次 base：`7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`；它与线上题面标记的历史 Issue 基线 `baseline-dcaa93b3` 不同。前后日志均从本次 base 产生，不能把它们描述成历史 Issue 基线的结果。
 
-## 运行
+## 学生复现
 
-JDK 17 下的特征测试命令：
+从仓库根目录执行，JDK 17：
+
+```bash
+git clone --branch exp/e4-08 --single-branch https://github.com/meng004/mall.git mall-e4-08
+cd mall-e4-08
+mvn -pl SDC/E4 -am -DskipTests=false -Dtest=AdminCacheWiringTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+## 本轮运行记录
+
+本轮隔离 checkout 使用 JDK 17 与 RTK 包装的等价命令，保留完整历史日志：
 
 ```bash
 rtk env JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home PATH=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home/bin:$PATH rtk proxy mvn -pl SDC/E4 -am -DskipTests=false -Dsurefire.failIfNoSpecifiedTests=false -Dtest=AdminCacheWiringTest test
 ```
 
-结果：4 tests, 0 failures, 0 errors, 0 skipped。
+结果：4 tests, 0 failures, 0 errors, 0 skipped。学生命令不依赖本机绝对路径。

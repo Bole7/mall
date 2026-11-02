@@ -23,6 +23,14 @@
 
 ## 参考实现与证据
 
-参考分支 `exp/e4-08`，说明、测试与完整日志见 `SDC/E4/answers/E4-08/`。采用 Mapper 直接查询，管理员服务构造注入缓存服务；同一套测试修改前、修改后均 4/4 通过，含最小 Spring 容器装配。Mapper 和 Redis 使用 Mockito 替身，未验证真实数据库与 Redis。
+参考分支：[exp/e4-08](https://github.com/meng004/mall/tree/exp/e4-08)，答案目录：[SDC/E4/answers/E4-08](https://github.com/meng004/mall/tree/exp/e4-08/SDC/E4/answers/E4-08)。从仓库根目录用 JDK 17 复现：
+
+```sh
+git clone --branch exp/e4-08 --single-branch https://github.com/meng004/mall.git mall-e4-08
+cd mall-e4-08
+mvn -pl SDC/E4 -am -DskipTests=false -Dtest=AdminCacheWiringTest -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+采用 Mapper 直接查询，管理员服务构造注入缓存服务；同一套测试修改前、修改后均 4/4 通过，含最小 Spring 容器装配。Mapper 和 Redis 使用 Mockito 替身，未验证真实数据库与 Redis。
 
 本次实现基于 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`；题目原有 `baseline-dcaa93b3` 是历史 Issue 基线，并非本次比较的 base。JDK 17 下 test 阶段编译成功；额外 package 两次均在 Docker 镜像阶段因环境权限失败，不声称打包成功。
