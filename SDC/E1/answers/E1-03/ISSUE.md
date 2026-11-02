@@ -1,4 +1,4 @@
-# E1-03 商品收藏：Issue 草稿
+# E1-03 商品收藏
 
 ## 标题
 
@@ -37,5 +37,19 @@
 
 ## 参考实现边界
 
-参考测试位于 `SDC/E1/src/test/java/com/macro/mall/sdc/e1/MemberCollectionServiceTest.java`。本草稿不要求修复产品代码；若学生提出 Mongo 唯一索引、事务或并发修复，需另列需求、失败场景和真实数据库证据。
+参考测试位于 `SDC/E1/src/test/java/com/macro/mall/sdc/e1/MemberCollectionServiceTest.java`。本题不要求修复产品代码；若学生提出 Mongo 唯一索引、事务或并发修复，需另列需求、失败场景和真实数据库证据。
 
+
+
+## 已发布学习参考答案
+
+- [答案说明、源码依据和验证记录](https://github.com/meng004/mall/tree/exp/e1-03/SDC/E1/answers/E1-03)
+- [独立参考分支](https://github.com/meng004/mall/tree/exp/e1-03)
+- 基线：`7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`；不创建PR，不合入mall主线。
+- JDK 17 定向验证：9（新增6、已有3）项通过，0失败/错误/跳过。仅证明源码和Mock调用，不证明真实DB/事务/HTTP链路。
+
+```sh
+git clone --branch exp/e1-03 --single-branch https://github.com/meng004/mall.git mall-e1-03
+cd mall-e1-03
+mvn -pl SDC/E1 -am -Dtest=MemberCollectionServiceTest,MallFactsTest -Dsurefire.failIfNoSpecifiedTests=false -DskipTests=false -Dmaven.compiler.proc=full test
+```
