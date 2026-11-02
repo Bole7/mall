@@ -1,4 +1,4 @@
-# Issue 草稿：E1-04 浏览记录行为分析
+# E1-04 浏览记录行为分析
 
 ## 目标
 
@@ -23,3 +23,17 @@
 ## 非目标
 
 不修改 mall 产品代码，不实现浏览历史功能，不将结果扩展到批量删除、清理策略或端到端数据库验证。
+
+
+## 已发布学习参考答案
+
+- [答案说明、源码依据和验证记录](https://github.com/meng004/mall/tree/exp/e1-04/SDC/E1/answers/E1-04)
+- [独立参考分支](https://github.com/meng004/mall/tree/exp/e1-04)
+- 基线：`7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`；不创建PR，不合入mall主线。
+- JDK 26 定向验证：8（新增5、已有3）项通过，0失败/错误/跳过。仅证明源码和Mock调用，不证明真实DB/事务/HTTP链路。
+
+```sh
+git clone --branch exp/e1-04 --single-branch https://github.com/meng004/mall.git mall-e1-04
+cd mall-e1-04
+mvn -pl SDC/E1 -am -Dtest=MemberReadHistoryBehaviorTest,MallFactsTest -Dsurefire.failIfNoSpecifiedTests=false -DskipTests=false -Dmaven.compiler.proc=full test
+```
