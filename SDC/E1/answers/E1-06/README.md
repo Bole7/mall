@@ -34,7 +34,7 @@ flowchart LR
 - `contentAggregatesSixSectionsFromTheirDependencies`：为广告 Mapper、HomeDao、当前活动和秒杀场次提供人工数据，调用真实 `HomeServiceImpl.content()`，断言六块内容、下一场信息和固定参数。
 - `missingCampaignLeavesAnEmptyFlashPromotionWrapperWithoutBreakingHomeContent`：单独验证无活动边界，包装对象非空、内部字段为空，且没有继续查询场次或商品。
 
-这是 Mock 替换外部数据依赖后的服务层观察测试。它验证真实服务方法的聚合顺序、参数和对象结构，不是数据库、MyBatis SQL、HTTP 或端到端集成测试。首次 JDK 17 执行因仓库默认 Mockito inline maker 无法自附加失败；复用项目现有 `mock-maker-subclass` 配置后定向测试通过。
+这是 Mock 替换外部数据依赖后的服务层观察测试。它验证真实服务方法的聚合参数和对象结构，不是数据库、MyBatis SQL、HTTP 或端到端集成测试。首次 JDK 17 执行因仓库默认 Mockito inline maker 无法自附加失败；复用项目现有 `mock-maker-subclass` 配置后定向测试通过。
 
 ## 代码依据
 
@@ -61,3 +61,5 @@ rtk env JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
 ## 未验证范围
 
 未连接 MySQL、Redis、消息队列或启动 Spring Boot；未验证真实 SQL 结果、数据库排序／分页、HTTP 序列化、并发、缓存和生产配置。人工列表也不代表线上数据量或数据质量。
+
+原始测试日志：[fresh-targeted-test.log](../../outputs/E1-06/evidence/fresh-targeted-test.log)。独立参考分支`exp/e1-06`；Mockito subclass配置限于本教学分支的定向测试，未验证portal全部测试。
