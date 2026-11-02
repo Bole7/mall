@@ -30,4 +30,5 @@
 
 - `UmsMemberReceiveAddressObservationTest` 实际调用 Service，验证 list 的会员条件、默认地址两次 mapper 调用的先后、更新字段及目标会员/id 条件。
 - 新鲜测试运行命令和计数记录在 `run.log`。
+- 测试使用仓库已有的 `mock-maker-subclass` Mockito 模式，避免 JDK 26 inline mock maker 自附加限制。
 - 证据不覆盖其他 CRUD 方法、认证链、事务代理、MyBatis SQL 执行或数据库并发。

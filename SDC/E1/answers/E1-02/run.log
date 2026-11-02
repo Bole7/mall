@@ -10,4 +10,8 @@ Attempt 2:
 JAVA_HOME=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home rtk mvn -o -pl mall-portal -am -Dlombok.version=1.18.46 -Dtest=UmsMemberReceiveAddressObservationTest -DfailIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false test
 Result: same mall-common compile failure; 0 tests executed.
 
-An attempt with -Dlombok.version=1.18.48 could not resolve that artifact in Maven offline mode because the locally cached artifact is not recorded for the configured repositories. No production code or build configuration was changed to work around the environment. The Mockito test is authored but has not been executed; it is not evidence of a passing test, database transaction, or SQL behavior.
+Attempt 3 (fresh successful run):
+rtk proxy env JAVA_HOME=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home mvn -Dmaven.compiler.proc=full -DskipTests=false -pl mall-portal -am -Dtest=UmsMemberReceiveAddressObservationTest -Dsurefire.failIfNoSpecifiedTests=false test
+Result: BUILD SUCCESS; mall-portal: Tests run: 1, Failures: 0, Errors: 0, Skipped: 0. Explicit `-Dmaven.compiler.proc=full` enabled Lombok annotation processing. The test resource selects the repository's existing `mock-maker-subclass` mode because JDK 26 cannot self-attach Mockito's inline mock maker.
+
+Scope remains Mockito service observation only: no Spring application context, real database transaction, HTTP request, rollback, or SQL execution is verified.

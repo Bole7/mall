@@ -16,8 +16,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 class UmsMemberReceiveAddressObservationTest {
-    private final UmsMemberService memberService = mock(UmsMemberService.class);
-    private final UmsMemberReceiveAddressMapper mapper = mock(UmsMemberReceiveAddressMapper.class);
+    private final UmsMemberService memberService = mock(UmsMemberService.class, withSettings().mockMaker("mock-maker-subclass"));
+    private final UmsMemberReceiveAddressMapper mapper = mock(UmsMemberReceiveAddressMapper.class, withSettings().mockMaker("mock-maker-subclass"));
     private final UmsMemberReceiveAddressServiceImpl service = new UmsMemberReceiveAddressServiceImpl();
 
     UmsMemberReceiveAddressObservationTest() {
@@ -44,8 +44,7 @@ class UmsMemberReceiveAddressObservationTest {
         ArgumentCaptor<UmsMemberReceiveAddress> rows = ArgumentCaptor.forClass(UmsMemberReceiveAddress.class);
         ArgumentCaptor<UmsMemberReceiveAddressExample> queries = ArgumentCaptor.forClass(UmsMemberReceiveAddressExample.class);
         InOrder order = inOrder(mapper);
-        order.verify(mapper).updateByExampleSelective(rows.capture(), queries.capture());
-        order.verify(mapper).updateByExampleSelective(rows.capture(), queries.capture());
+        order.verify(mapper, times(2)).updateByExampleSelective(rows.capture(), queries.capture());
 
         assertEquals(0, rows.getAllValues().get(0).getDefaultStatus());
         assertTrue(has(queries.getAllValues().get(0), "member_id =", 73L));
