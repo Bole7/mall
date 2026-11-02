@@ -10,6 +10,7 @@ import com.macro.mall.dto.PmsProductResult;
 import com.macro.mall.mapper.*;
 import com.macro.mall.model.*;
 import com.macro.mall.service.PmsProductService;
+import com.macro.mall.service.PmsProductUnlistingPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -64,6 +65,8 @@ public class PmsProductServiceImpl implements PmsProductService {
     private PmsProductDao productDao;
     @Autowired
     private PmsProductVertifyRecordDao productVertifyRecordDao;
+    @Autowired
+    private PmsProductUnlistingPort productUnlistingPort;
 
     @Override
     public int create(PmsProductParam productParam) {
@@ -258,7 +261,15 @@ public class PmsProductServiceImpl implements PmsProductService {
         record.setPublishStatus(publishStatus);
         PmsProductExample example = new PmsProductExample();
         example.createCriteria().andIdIn(ids);
-        return productMapper.updateByExampleSelective(record, example);
+        int count = productMapper.updateByExampleSelective(record, example);
+        if (count > 0 && Integer.valueOf(0).equals(publishStatus)) {
+            try {
+                productUnlistingPort.notifyUnlisted(ids);
+            } catch (RuntimeException e) {
+                LOGGER.warn("商品下架变更通知失败，productIds={}", ids, e);
+            }
+        }
+        return count;
     }
 
     @Override
