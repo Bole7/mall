@@ -1,4 +1,4 @@
-# Issue 草稿：E1-02 会员收货地址
+# E1-02 会员收货地址
 
 ## 目标
 
@@ -18,4 +18,18 @@
 
 ## 状态
 
-草稿，待评审；未创建远端 Issue。
+已发布学习参考答案，验证范围见下文。
+
+
+## 已发布学习参考答案
+
+- [答案说明、源码依据和验证记录](https://github.com/meng004/mall/tree/exp/e1-02/SDC/E1/answers/E1-02)
+- [独立参考分支](https://github.com/meng004/mall/tree/exp/e1-02)
+- 基线：`7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8`；不创建PR，不合入mall主线。
+- JDK 26 定向验证：1项通过，0失败/错误/跳过。仅证明源码和Mock调用，不证明真实DB/事务/HTTP链路。
+
+```sh
+git clone --branch exp/e1-02 --single-branch https://github.com/meng004/mall.git mall-e1-02
+cd mall-e1-02
+mvn -pl mall-portal -am -Dtest=UmsMemberReceiveAddressObservationTest -Dsurefire.failIfNoSpecifiedTests=false -DskipTests=false -Dmaven.compiler.proc=full test
+```
