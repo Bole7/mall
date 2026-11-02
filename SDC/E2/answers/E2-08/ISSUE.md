@@ -11,6 +11,6 @@ portal 搜索、品牌商品列表、首页推荐商品各自写“已上架且�
 
 ## 参考答案
 
-示例分支 `exp/e2-08`；参考实现以 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8` 为基线，原任务历史基线 `baseline-dcaa93b3` 保留作来源记录。完整说明、复现命令、边界和日志见分支 `SDC/E2/answers/E2-08/README.md`。
+示例分支 [`exp/e2-08`](https://github.com/meng004/mall/tree/exp/e2-08)；参考实现以 `7832a9f7dcd5ff16b5b3c6c2b0f178a6b8f2dfe8` 为基线，原任务历史基线 `baseline-dcaa93b3` 保留作来源记录。完整说明、复现命令、边界和日志见[参考答案](https://github.com/meng004/mall/blob/exp/e2-08/SDC/E2/answers/E2-08/README.md)。
 
 三个 Java 入口条件测试在基线及改后均通过。基线首页 SQL 的旧行为特征测试通过，新规则测试对新品和人气各报期望 `[1]`、实际 `[1, 2]`；改后两测试通过，0 failures/errors/skips。测试用 MyBatis 和 H2 执行真实映射 SQL，未验证真实 MySQL 或 HTTP。
