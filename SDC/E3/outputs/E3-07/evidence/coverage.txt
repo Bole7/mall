@@ -1,0 +1,50 @@
+工具：JaCoCo 0.8.13；JDK 17；Surefire 3.5.5。
+
+采集命令（在 mall 仓库根目录执行）：
+mvn -B -pl mall-portal -am -DskipTests=false -Dtest=SDCE307StudentTest -Dsurefire.failIfNoSpecifiedTests=false -DargLine="-javaagent:C:/Users/EDY/.m2/repository/org/jacoco/org.jacoco.agent/0.8.13/org.jacoco.agent-0.8.13-runtime.jar=destfile=C:/Users/EDY/AppData/Local/Temp/e3-jacoco-20261105.exec" test org.jacoco:jacoco-maven-plugin:0.8.13:report -Djacoco.dataFile=C:/Users/EDY/AppData/Local/Temp/e3-jacoco-20261105.exec
+
+说明：中文项目路径直接放进 -DargLine 会被 Windows/Maven 参数编码成乱码，因此数据文件使用纯 ASCII 临时路径；报告由 JaCoCo 在 mall-portal/target/site/jacoco/jacoco.xml 生成。
+
+统计对象：UmsMemberReceiveAddressServiceImpl.update(Long, UmsMemberReceiveAddress)
+源码签名：mall-portal/src/main/java/com/macro/mall/portal/service/impl/UmsMemberReceiveAddressServiceImpl.java:41
+修复位置：:46-48
+测试：Tests run: 6, Failures: 0, Errors: 0, Skipped: 0
+
+计数器：
+LINE      missed=0 covered=17
+BRANCH    missed=0 covered=6
+INSTRUCTION missed=0 covered=72
+COMPLEXITY missed=0 covered=4
+METHOD    missed=0 covered=1
+
+目标方法逐行（只列 JaCoCo 探针行；nr / mi / ci / mb / cb）：
+nr=42 mi=0 ci=3 mb=0 cb=0  address.setId(null);
+nr=43 mi=0 ci=4 mb=0 cb=0  currentMember = memberService.getCurrentMember();
+nr=44 mi=0 ci=4 mb=0 cb=0  example = new UmsMemberReceiveAddressExample();
+nr=45 mi=0 ci=8 mb=0 cb=0  example.createCriteria().andMemberIdEqualTo(...).andIdEqualTo(id);
+nr=46 mi=0 ci=6 mb=0 cb=2  if (CollectionUtils.isEmpty(addressMapper.selectByExample(example)))
+nr=47 mi=0 ci=2 mb=0 cb=0  return 0;
+nr=49 mi=0 ci=3 mb=0 cb=2  if(address.getDefaultStatus()==null)
+nr=50 mi=0 ci=4 mb=0 cb=0  address.setDefaultStatus(0);
+nr=52 mi=0 ci=5 mb=0 cb=2  if(address.getDefaultStatus()==1)
+nr=54 mi=0 ci=4 mb=0 cb=0  record = new UmsMemberReceiveAddress();
+nr=55 mi=0 ci=4 mb=0 cb=0  record.setDefaultStatus(0);
+nr=56 mi=0 ci=4 mb=0 cb=0  updateExample = new UmsMemberReceiveAddressExample();
+nr=57 mi=0 ci=3 mb=0 cb=0  updateExample.createCriteria()
+nr=58 mi=0 ci=3 mb=0 cb=0      .andMemberIdEqualTo(...)
+nr=59 mi=0 ci=3 mb=0 cb=0      .andDefaultStatusEqualTo(1);
+nr=60 mi=0 ci=6 mb=0 cb=0  addressMapper.updateByExampleSelective(record, updateExample);
+nr=62 mi=0 ci=6 mb=0 cb=0  return addressMapper.updateByExampleSelective(address, example);
+
+分支解释：
+- 第 46 行：真分支由两例无效目标覆盖；假分支由四个有效目标/相邻行为覆盖。
+- 第 49 行：null 分支由 omittedDefaultStatusIsTreatedAsZero 覆盖；非 null 分支由其余有效目标覆盖。
+- 第 52 行：等于 1 的分支由两例设为默认覆盖；不等于 1 的分支由普通更新覆盖。
+
+它证明了什么：
+- 六个测试都实际执行到 update 的目标方法；新增的前置返回行 47 被 invalid-target 两例执行。
+- 行 46、49、52 的每个分支两侧都有测试覆盖；没有跳过测试。
+
+它没有证明什么：
+- 没有覆盖真实 MySQL 提交/回滚、Mapper SQL 的真实行锁、HTTP 入口或并发请求。
+- 100% 覆盖不代表断言覆盖了全部验收准则；本报告只把覆盖率作为记录，不作为质量门槛。

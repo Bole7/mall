@@ -1,0 +1,18 @@
+示例：E3-07  模块：mall-portal  测试：SDCE307StudentTest
+
+改前基线（exp/E3，产品代码未修改）：
+Tests run: 6, Failures: 2, Errors: 0, Skipped: 0
+失败 1：SDCE307StudentTest.missingDefaultTargetReturnsZeroAndDoesNotWrite:45
+  NeverWantedButInvoked；调用点 UmsMemberReceiveAddressServiceImpl.java:57 和 :59
+失败 2：SDCE307StudentTest.addressOwnedByAnotherMemberReturnsZeroAndDoesNotWrite:59
+  NeverWantedButInvoked；调用点 UmsMemberReceiveAddressServiceImpl.java:57 和 :59
+
+改后（最小修复 :46-48）：
+Tests run: 6, Failures: 0, Errors: 0, Skipped: 0
+
+受控注入（临时把 :47 的 return 0 改为 return 7）：
+目标两例：Tests run: 2, Failures: 2, Errors: 0, Skipped: 0
+观察：两例均为 expected: <0> but was: <7>
+修正：恢复 return 0，随后最终全绿 6/0/0/0。
+
+结论：改前红、改后绿；失败来自业务断言，不是编译、环境或 Mockito 初始化错误。
